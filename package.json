@@ -1,0 +1,44 @@
+{
+  "name": "distributed-chat-system",
+  "version": "1.0.0",
+  "description": "A distributed real-time chat system built with React, Node.js, Socket.io, and Redis",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "build:all": "cd backend && npm run build && cd ../frontend && npm run build",
+    "dev:setup": "docker-compose -f docker-compose.dev.yml up redis -d",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "start": "docker-compose up -d",
+    "stop": "docker-compose down",
+    "start:dev": "docker-compose -f docker-compose.dev.yml up",
+    "stop:dev": "docker-compose -f docker-compose.dev.yml down",
+    "logs": "docker-compose logs -f",
+    "logs:backend": "docker-compose logs -f backend1 backend2 backend3",
+    "logs:frontend": "docker-compose logs -f frontend",
+    "logs:nginx": "docker-compose logs -f nginx",
+    "logs:redis": "docker-compose logs -f redis",
+    "clean": "docker-compose down -v && docker system prune -f",
+    "test:all": "cd backend && npm test && cd ../frontend && npm test",
+    "lint:all": "cd backend && npm run lint && cd ../frontend && npm run lint",
+    "build:docker": "docker-compose build",
+    "health": "curl http://localhost/health && curl http://localhost/api/health"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "keywords": [
+    "chat",
+    "websocket",
+    "socket.io",
+    "redis",
+    "react",
+    "nodejs",
+    "typescript",
+    "docker",
+    "nginx"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
