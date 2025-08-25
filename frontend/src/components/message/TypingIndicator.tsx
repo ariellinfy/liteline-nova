@@ -1,17 +1,12 @@
 import React from "react";
 import { useChat } from "../../contexts/ChatContext";
 
-const TypingIndicator: React.FC = () => {
-  const { state } = useChat();
-
-  if (state.typingUsers.length === 0) {
-    return null;
-  }
-
-  const typingUsers = state.typingUsers.filter((user) => user.isTyping);
+const TypingIndicator: React.FC<{ roomId: string }> = ({ roomId }) => {
+  const { getRoomTyping } = useChat();
+  const typingUsers = getRoomTyping(roomId).filter((user) => user.isTyping);
 
   if (typingUsers.length === 0) {
-    return null;
+    return <div className="py-1"></div>;
   }
 
   const getTypingText = () => {
@@ -26,9 +21,9 @@ const TypingIndicator: React.FC = () => {
 
   return (
     <div className="flex justify-start">
-      <div className="bg-gray-100 dark:bg-gray-800 px-4 py-2 rounded-2xl">
+      <div className="px-1 py-1">
         <div className="flex items-center space-x-2">
-          <div className="typing-indicator flex space-x-1">
+          <div className="flex space-x-1">
             <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
             <div
               className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"

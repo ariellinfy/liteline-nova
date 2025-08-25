@@ -1,5 +1,5 @@
 import React from "react";
-import { Message } from "../../services/socket";
+import { Message } from "../../types";
 
 interface MessageItemProps {
   message: Message;
@@ -18,7 +18,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, isOwnMessage }) => {
 
   if (message.type === "system") {
     return (
-      <div className="text-center">
+      <div className="text-center my-2">
         <span className="text-sm text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-full">
           {message.content}
         </span>
@@ -27,7 +27,10 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, isOwnMessage }) => {
   }
 
   return (
-    <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+    <div
+      data-id={message.id}
+      className={`flex ${isOwnMessage ? "justify-end" : "justify-start"} mb-4`}
+    >
       <div
         className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
           isOwnMessage
@@ -40,7 +43,9 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, isOwnMessage }) => {
             {message.username}
           </p>
         )}
-        <p className="text-sm break-words">{message.content}</p>
+        <p className="text-sm break-words whitespace-pre-wrap">
+          {message.content}
+        </p>
         <p
           className={`text-xs mt-1 ${
             isOwnMessage ? "text-blue-100" : "text-gray-500 dark:text-gray-400"
@@ -53,4 +58,4 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, isOwnMessage }) => {
   );
 };
 
-export default MessageItem;
+export default React.memo(MessageItem);

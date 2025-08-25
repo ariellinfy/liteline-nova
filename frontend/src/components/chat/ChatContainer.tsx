@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { useChat } from "../../contexts/ChatContext";
-import JoinForm from "./JoinForm";
-import ChatRoom from "./ChatRoom";
 import LoadingSpinner from "../utility/LoadingSpinner";
 import ErrorAlert from "../utility/ErrorAlert";
+import AuthContainer from "../auth/AuthContainer";
+import ChatLobby from "../chat/ChatLobby";
+import ChatRoom from "../chat/ChatRoom";
 
 const ChatContainer: React.FC = () => {
   const { state, connect, disconnect } = useChat();
@@ -11,6 +12,11 @@ const ChatContainer: React.FC = () => {
 
   useEffect(() => {
     const initializeConnection = async () => {
+      if (!state.isAuthenticated) {
+        setIsInitialized(true);
+        return;
+      }
+
       try {
         await connect();
       } catch (error) {
@@ -21,23 +27,44 @@ const ChatContainer: React.FC = () => {
     };
 
     initializeConnection();
-    return () => disconnect();
-  }, []);
 
+    return () => {
+      if (state.isConnected) {
+        disconnect();
+      }
+    };
+  }, [state.isAuthenticated]);
+
+  // Show loading while initializing
   if (!isInitialized || state.isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <LoadingSpinner />
           <p className="mt-4 text-gray-600 dark:text-gray-400">
-            Connecting to chat server...
+            {!state.isAuthenticated
+              ? "Loading..."
+              : "Connecting to chat server..."}
           </p>
         </div>
       </div>
     );
   }
 
-  if (!state.isConnected) {
+  // Show auth form if not authenticated
+  if (!state.isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
+        {state.error && <ErrorAlert message={state.error.message} />}
+        <div className="flex items-center justify-center min-h-screen px-4">
+          <AuthContainer />
+        </div>
+      </div>
+    );
+  }
+
+  // Show connection error if authenticated but not connected
+  if (state.isAuthenticated && !state.isConnected) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center max-w-md mx-auto p-6">
@@ -61,17 +88,12 @@ const ChatContainer: React.FC = () => {
     );
   }
 
+  // Show main chat interface
   return (
-    <div className="min-h-screen">
-      {state.error && <ErrorAlert message={state.error} />}
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
+      {state.error && <ErrorAlert message={state.error.message} />}
 
-      {!state.currentRoom ? (
-        <div className="flex items-center justify-center min-h-screen px-4">
-          <JoinForm />
-        </div>
-      ) : (
-        <ChatRoom />
-      )}
+      {!state.currentRoomId ? <ChatLobby /> : <ChatRoom />}
     </div>
   );
 };
