@@ -3,43 +3,89 @@ import { Server } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
 
+import { DatabaseService } from "./services/database";
 import { RedisService } from "./services/redis";
+import { AuthService } from "./services/auth";
 import { ChatService } from "./services/chat";
 import { socketHandler } from "./handlers/socket";
+import {
+  createAuthMiddleware,
+  createSocketAuthMiddleware,
+} from "./middleware/auth";
+import { createAuthRoutes } from "./routes/auth";
+import { createRoomRoutes } from "./routes/rooms";
 import { buildApp } from "./app";
 
-const app = buildApp();
-const server = createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
-  path: "/socket.io",
-});
+async function startServer() {
+  // Initialize services
+  const dbService = new DatabaseService();
+  const redisService = new RedisService();
+  const authService = new AuthService();
 
-// Redis adapter clients
-const redisHost = process.env.REDIS_HOST || "localhost";
-const redisPort = parseInt(process.env.REDIS_PORT || "3002", 10);
-const pubClient = new Redis({ host: redisHost, port: redisPort });
-const subClient = pubClient.duplicate();
+  const app = buildApp();
+  const server = createServer(app);
 
-io.adapter(createAdapter(pubClient, subClient));
+  // Socket.IO setup with Redis adapter
+  const io = new Server(server, {
+    cors: {
+      origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+    path: "/socket.io",
+  });
 
-// Initialize services
-const redisService = new RedisService();
-const chatService = new ChatService(redisService, io);
+  // Redis adapter clients
+  const redisUrl =
+    process.env.REDIS_URL ||
+    `redis://${process.env.REDIS_HOST || "redis"}:${
+      process.env.REDIS_PORT || "6379"
+    }`;
+  const pubClient = new Redis(redisUrl);
+  const subClient = pubClient.duplicate();
 
-// Socket.io connection handling
-socketHandler(io, chatService);
+  io.adapter(createAdapter(pubClient, subClient));
 
-const PORT = process.env.PORT || 3001;
+  // Initialize services
+  const chatService = new ChatService(dbService, redisService, authService, io);
 
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Socket.io server ready for connections`);
-});
+  // Authentication middleware
+  const authMiddleware = createAuthMiddleware(authService, dbService);
 
-// Export for potential manual teardown in e2e tests (optional)
-export { server, io };
+  // API Routes
+  app.use("/api/auth", createAuthRoutes(chatService));
+  app.use("/api/rooms", authMiddleware, createRoomRoutes(chatService));
+
+  // Socket.IO authentication middleware
+  io.use(createSocketAuthMiddleware(authService, dbService));
+
+  // Socket.IO connection handling
+  socketHandler(io, chatService);
+
+  const PORT = process.env.PORT || 3001;
+
+  server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Socket.io server ready for connections`);
+  });
+
+  // Graceful shutdown
+  process.on("SIGTERM", async () => {
+    console.log("SIGTERM received, shutting down gracefully");
+
+    await chatService.disconnect();
+    await dbService.disconnect();
+    await redisService.disconnect();
+    await pubClient.quit();
+    await subClient.quit();
+
+    server.close(() => {
+      console.log("Server closed");
+      process.exit(0);
+    });
+  });
+
+  return { server, io };
+}
+
+startServer().catch(console.error);
