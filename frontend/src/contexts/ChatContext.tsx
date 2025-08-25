@@ -1,110 +1,312 @@
 import React, { createContext, useContext, useReducer, useEffect } from "react";
 import {
-  socketService,
   Message,
   TypingUser,
   UserPresence,
-} from "../services/socket";
+  AuthUser,
+  Room,
+  MessagePaginationRequest,
+  ApiError,
+} from "../types";
+import { socketService } from "../services/socket";
+import { authService } from "../services/auth";
+import { roomService } from "../services/room";
 
 interface ChatState {
+  // Auth
+  currentUser: AuthUser | null;
+  isAuthenticated: boolean;
+
+  // Connection
   isConnected: boolean;
-  currentRoom: string | null;
-  currentUser: { id: string; username: string } | null;
-  messages: Message[];
-  roomPresences: UserPresence[];
-  typingUsers: TypingUser[];
-  error: string | null;
+
+  // Rooms
+  currentRoomId: string | null;
+  userRooms: Room[];
+  publicRooms: Room[];
+
+  // Messages per room
+  messagesByRoom: Record<
+    string,
+    {
+      messages: Message[];
+      hasMore: boolean;
+      nextCursor?: string;
+      isLoading: boolean;
+    }
+  >;
+
+  // Presence per room
+  presencesByRoom: Record<string, UserPresence[]>;
+
+  // Typing per room
+  typingByRoom: Record<string, TypingUser[]>;
+
+  // UI state
+  error: ApiError | null;
   isLoading: boolean;
 }
 
 type ChatAction =
+  | {
+      type: "SET_AUTHENTICATED";
+      payload: { user: AuthUser | null; isAuthenticated: boolean };
+    }
   | { type: "SET_CONNECTED"; payload: boolean }
   | { type: "SET_CURRENT_ROOM"; payload: string | null }
+  | { type: "SET_USER_ROOMS"; payload: Room[] }
+  | { type: "ADD_USER_ROOM"; payload: Room }
+  | { type: "REMOVE_USER_ROOM"; payload: string }
+  | { type: "SET_PUBLIC_ROOMS"; payload: Room[] }
   | {
-      type: "SET_CURRENT_USER";
-      payload: { id: string; username: string } | null;
+      type: "SET_ROOM_MESSAGES";
+      payload: {
+        roomId: string;
+        messages: Message[];
+        hasMore?: boolean;
+        nextCursor?: string;
+      };
     }
   | { type: "ADD_MESSAGE"; payload: Message }
-  | { type: "SET_MESSAGES"; payload: Message[] }
-  | { type: "SET_ROOM_PRESENCES"; payload: UserPresence[] }
-  | { type: "UPDATE_PRESENCE"; payload: UserPresence }
-  | { type: "UPDATE_TYPING_USERS"; payload: TypingUser }
-  | { type: "SET_ERROR"; payload: string | null }
-  | { type: "SET_LOADING"; payload: boolean }
-  | { type: "CLEAR_TYPING_USERS" };
+  | {
+      type: "PREPEND_MESSAGES";
+      payload: {
+        roomId: string;
+        messages: Message[];
+        hasMore: boolean;
+        nextCursor?: string;
+      };
+    }
+  | {
+      type: "SET_MESSAGE_PAGINATION";
+      payload: { roomId: string; hasMore: boolean; nextCursor?: string };
+    }
+  | { type: "CLEAR_ROOM_DATA"; payload: string }
+  | {
+      type: "SET_MESSAGES_LOADING";
+      payload: { roomId: string; loading: boolean };
+    }
+  | {
+      type: "SET_ROOM_PRESENCES";
+      payload: { roomId: string; presences: UserPresence[] };
+    }
+  | { type: "UPDATE_TYPING"; payload: TypingUser }
+  | { type: "CLEAR_ROOM_TYPING"; payload: string }
+  | { type: "SET_ERROR"; payload: ApiError | null }
+  | { type: "SET_LOADING"; payload: boolean };
 
 const initialState: ChatState = {
-  isConnected: false,
-  currentRoom: null,
   currentUser: null,
-  messages: [],
-  roomPresences: [],
-  typingUsers: [],
+  isAuthenticated: false,
+  isConnected: false,
+  currentRoomId: null,
+  userRooms: [],
+  publicRooms: [],
+  messagesByRoom: {},
+  presencesByRoom: {},
+  typingByRoom: {},
   error: null,
   isLoading: false,
 };
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
+    case "SET_AUTHENTICATED":
+      return {
+        ...state,
+        currentUser: action.payload.user,
+        isAuthenticated: action.payload.isAuthenticated,
+      };
+
     case "SET_CONNECTED":
       return { ...state, isConnected: action.payload };
+
     case "SET_CURRENT_ROOM":
-      return { ...state, currentRoom: action.payload };
-    case "SET_CURRENT_USER":
-      return { ...state, currentUser: action.payload };
+      return { ...state, currentRoomId: action.payload };
+
+    case "SET_USER_ROOMS":
+      return { ...state, userRooms: action.payload };
+
+    case "ADD_USER_ROOM":
+      return {
+        ...state,
+        userRooms: [
+          ...state.userRooms.filter((r) => r.id !== action.payload.id),
+          action.payload,
+        ],
+      };
+
+    case "REMOVE_USER_ROOM":
+      return {
+        ...state,
+        userRooms: state.userRooms.filter((r) => r.id !== action.payload),
+      };
+
+    case "SET_PUBLIC_ROOMS":
+      return { ...state, publicRooms: action.payload };
+
+    case "SET_ROOM_MESSAGES":
+      return {
+        ...state,
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [action.payload.roomId]: {
+            messages: action.payload.messages,
+            hasMore: !!action.payload.hasMore,
+            nextCursor: action.payload.nextCursor,
+            isLoading: false,
+          },
+        },
+      };
+
     case "ADD_MESSAGE":
-      return { ...state, messages: [...state.messages, action.payload] };
-    case "SET_MESSAGES":
-      return { ...state, messages: action.payload };
+      const roomId = action.payload.roomId;
+      const currentRoomData = state.messagesByRoom[roomId] || {
+        messages: [],
+        hasMore: false,
+        isLoading: false,
+      };
+
+      return {
+        ...state,
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [roomId]: {
+            ...currentRoomData,
+            messages: [...currentRoomData.messages, action.payload],
+          },
+        },
+      };
+
+    case "PREPEND_MESSAGES":
+      const {
+        roomId: prependRoomId,
+        messages,
+        hasMore,
+        nextCursor,
+      } = action.payload;
+      const existingData = state.messagesByRoom[prependRoomId] || {
+        messages: [],
+        hasMore: false,
+        isLoading: false,
+      };
+
+      return {
+        ...state,
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [prependRoomId]: {
+            ...existingData,
+            messages: [...messages, ...existingData.messages],
+            hasMore,
+            nextCursor,
+            isLoading: false,
+          },
+        },
+      };
+
+    case "SET_MESSAGE_PAGINATION":
+      const paginationRoomId = action.payload.roomId;
+      const paginationData = state.messagesByRoom[paginationRoomId] || {
+        messages: [],
+        hasMore: false,
+        isLoading: false,
+      };
+
+      return {
+        ...state,
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [paginationRoomId]: {
+            ...paginationData,
+            hasMore: action.payload.hasMore,
+            nextCursor: action.payload.nextCursor,
+          },
+        },
+      };
+
+    case "SET_MESSAGES_LOADING":
+      const loadingRoomId = action.payload.roomId;
+      const loadingData = state.messagesByRoom[loadingRoomId] || {
+        messages: [],
+        hasMore: false,
+        isLoading: false,
+      };
+
+      return {
+        ...state,
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [loadingRoomId]: {
+            ...loadingData,
+            isLoading: action.payload.loading,
+          },
+        },
+      };
+
     case "SET_ROOM_PRESENCES":
-      return { ...state, roomPresences: action.payload };
-    case "UPDATE_PRESENCE":
-      const updatedPresences = state.roomPresences.map((presence) =>
-        presence.userId === action.payload.userId ? action.payload : presence
-      );
+      return {
+        ...state,
+        presencesByRoom: {
+          ...state.presencesByRoom,
+          [action.payload.roomId]: action.payload.presences,
+        },
+      };
 
-      // If presence doesn't exist, add it
-      if (
-        !state.roomPresences.find((p) => p.userId === action.payload.userId)
-      ) {
-        updatedPresences.push(action.payload);
-      }
-
-      return { ...state, roomPresences: updatedPresences };
-    case "UPDATE_TYPING_USERS":
+    case "UPDATE_TYPING":
+      const typingRoomId = action.payload.roomId;
+      const currentTyping = state.typingByRoom[typingRoomId] || [];
       const { userId, isTyping } = action.payload;
-      const existingIndex = state.typingUsers.findIndex(
-        (user) => user.userId === userId
-      );
 
+      let newTyping;
       if (isTyping) {
-        if (existingIndex === -1) {
-          return {
-            ...state,
-            typingUsers: [...state.typingUsers, action.payload],
-          };
-        } else {
-          return {
-            ...state,
-            typingUsers: state.typingUsers.map((user) =>
-              user.userId === userId ? action.payload : user
-            ),
-          };
-        }
+        newTyping = currentTyping.find((t) => t.userId === userId)
+          ? currentTyping.map((t) => (t.userId === userId ? action.payload : t))
+          : [...currentTyping, action.payload];
       } else {
-        return {
-          ...state,
-          typingUsers: state.typingUsers.filter(
-            (user) => user.userId !== userId
-          ),
-        };
+        newTyping = currentTyping.filter((t) => t.userId !== userId);
       }
-    case "CLEAR_TYPING_USERS":
-      return { ...state, typingUsers: [] };
+
+      return {
+        ...state,
+        typingByRoom: {
+          ...state.typingByRoom,
+          [typingRoomId]: newTyping,
+        },
+      };
+
+    case "CLEAR_ROOM_TYPING":
+      return {
+        ...state,
+        typingByRoom: {
+          ...state.typingByRoom,
+          [action.payload]: [],
+        },
+      };
+
+    case "CLEAR_ROOM_DATA":
+      const clearRoomId = action.payload;
+      const newMessagesByRoom = { ...state.messagesByRoom };
+      const newPresencesByRoom = { ...state.presencesByRoom };
+      const newTypingByRoom = { ...state.typingByRoom };
+
+      delete newMessagesByRoom[clearRoomId];
+      delete newPresencesByRoom[clearRoomId];
+      delete newTypingByRoom[clearRoomId];
+
+      return {
+        ...state,
+        messagesByRoom: newMessagesByRoom,
+        presencesByRoom: newPresencesByRoom,
+        typingByRoom: newTypingByRoom,
+      };
+
     case "SET_ERROR":
       return { ...state, error: action.payload };
+
     case "SET_LOADING":
       return { ...state, isLoading: action.payload };
+
     default:
       return state;
   }
@@ -112,15 +314,44 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
 interface ChatContextType {
   state: ChatState;
+  // Auth methods
+  login: (email: string, password: string) => Promise<void>;
+  register: (
+    username: string,
+    email: string,
+    password: string
+  ) => Promise<void>;
+  logout: () => void;
+  // Connection methods
   connect: () => Promise<void>;
   disconnect: () => void;
-  joinRoom: (roomId: string, userId: string, username: string) => void;
-  leaveRoom: () => void;
+  // Room methods
+  loadUserRooms: () => Promise<void>;
+  loadPublicRooms: () => Promise<void>;
+  createRoom: (
+    name: string,
+    description: string,
+    isPrivate: boolean,
+    passcode?: string
+  ) => Promise<void>;
+  joinRoom: (roomId: string, passcode?: string) => Promise<void>;
+  leaveRoom: (roomId: string) => Promise<void>;
+  switchToRoom: (roomId: string) => void;
+  goToLobby: () => void;
+  // Message methods
   sendMessage: (content: string) => void;
-  startTyping: () => void;
-  stopTyping: () => void;
-  updatePresence: (status: "online" | "offline") => void;
-  refreshPresences: () => void;
+  loadMoreMessages: (roomId: string) => Promise<void>;
+  // Typing methods
+  startTyping: (roomId: string) => void;
+  stopTyping: (roomId: string) => void;
+  // Utility methods
+  getRoomData: (roomId: string) => {
+    messages: Message[];
+    hasMore: boolean;
+    isLoading: boolean;
+  };
+  getRoomPresences: (roomId: string) => UserPresence[];
+  getRoomTyping: (roomId: string) => TypingUser[];
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -128,77 +359,178 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(chatReducer, initialState);
 
+  // Initialize auth state on mount
   useEffect(() => {
-    // Set up socket event listeners
+    const storedAuth = authService.getStoredAuth();
+    if (storedAuth) {
+      dispatch({
+        type: "SET_AUTHENTICATED",
+        payload: { user: storedAuth, isAuthenticated: true },
+      });
+    }
+  }, []);
+
+  // Set up socket event listeners
+  useEffect(() => {
+    if (!state.isAuthenticated) return;
+
     socketService.onRoomUpdate((data) => {
-      console.log("onRoomUpdate: joinRoom", data);
+      console.log("M5 9 C16 chatProvider.onRoomUpdate", data);
       if (data.type === "new_message") {
         dispatch({ type: "ADD_MESSAGE", payload: data.message });
-      } else if (data.type === "user_joined" || data.type === "user_left") {
-        if (data.presences) {
-          dispatch({ type: "SET_ROOM_PRESENCES", payload: data.presences });
+      } else if (
+        data.type === "user_joined" ||
+        data.type === "user_left" ||
+        data.type === "user_connected" ||
+        data.type === "user_disconnected"
+      ) {
+        if (data.presences && data.roomId) {
+          // console.log("room update", data);
+          dispatch({
+            type: "SET_ROOM_PRESENCES",
+            payload: { roomId: data.roomId, presences: data.presences },
+          });
         }
       }
     });
 
-    socketService.onRecentMessages((messages) => {
-      console.log("onRecentMessages: joinRoom", messages);
-      dispatch({ type: "SET_MESSAGES", payload: messages });
-    });
-
     socketService.onRoomJoined((data) => {
-      console.log("onRoomJoined: joinRoom", data);
-      dispatch({ type: "SET_CURRENT_ROOM", payload: data.roomId });
-      dispatch({ type: "SET_ROOM_PRESENCES", payload: data.presences });
+      console.log("J16 C24 chatProvider.onRoomJoined", data);
+
+      dispatch({
+        type: "SET_ROOM_PRESENCES",
+        payload: { roomId: data.roomId, presences: data.presences },
+      });
     });
 
-    socketService.onRoomLeft(() => {
+    socketService.onRoomLeft((data) => {
+      console.log("L9 chatProvider.onRoomLeft", data);
+      dispatch({ type: "CLEAR_ROOM_DATA", payload: data.roomId });
+      dispatch({ type: "REMOVE_USER_ROOM", payload: data.roomId });
       dispatch({ type: "SET_CURRENT_ROOM", payload: null });
-      dispatch({ type: "SET_MESSAGES", payload: [] });
-      dispatch({ type: "SET_ROOM_PRESENCES", payload: [] });
-      dispatch({ type: "CLEAR_TYPING_USERS" });
-    });
-
-    socketService.onUserTyping((data) => {
-      console.log("onUserTyping: stopTyping", data)
-      // Don't show typing indicator for current user
-      if (data.userId !== state.currentUser?.id) {
-        dispatch({ type: "UPDATE_TYPING_USERS", payload: data });
-      }
-    });
-
-    socketService.onPresenceUpdate((data) => {
-      console.log("onPresenceUpdate: joinRoom", data);
-      if (data.type === "user_online" || data.type === "user_offline") {
-        const presence: UserPresence = {
-          userId: data.userId,
-          username: data.username,
-          status: data.type === "user_online" ? "online" : "offline",
-          lastSeen: new Date().toISOString(),
-          roomId: data.roomId,
-        };
-        dispatch({ type: "UPDATE_PRESENCE", payload: presence });
-      }
-    });
-
-    socketService.onPresenceUpdated((data) => {
-      dispatch({ type: "SET_ROOM_PRESENCES", payload: data.presences });
     });
 
     socketService.onRoomPresences((data) => {
-      dispatch({ type: "SET_ROOM_PRESENCES", payload: data.presences });
+      console.log("chatProvider.onRoomPresences", data);
+      dispatch({
+        type: "SET_ROOM_PRESENCES",
+        payload: { roomId: data.roomId, presences: data.presences },
+      });
+    });
+
+    socketService.onMyRooms((data) => {
+      console.log("chatProvider.onMyRooms", data);
+      dispatch({ type: "SET_USER_ROOMS", payload: data.rooms });
+    });
+
+    socketService.onRecentMessages((data) => {
+      console.log("J18 chatProvider.onRecentMessages", data);
+      dispatch({
+        type: "SET_ROOM_MESSAGES",
+        // payload: { roomId: data.roomId, messages: data.messages },
+        payload: {
+          roomId: data.roomId,
+          messages: data.messages,
+          hasMore: data.hasMore,
+          nextCursor: data.nextCursor,
+        },
+      });
+    });
+
+    socketService.onMoreMessagesLoaded((data) => {
+      console.log("chatProvider.onMoreMessagesLoaded", data);
+      dispatch({
+        type: "PREPEND_MESSAGES",
+        payload: {
+          roomId: data.roomId,
+          messages: data.messages,
+          hasMore: data.hasMore,
+          nextCursor: data.nextCursor,
+        },
+      });
+    });
+
+    socketService.onUserTyping((data) => {
+      console.log("chatProvider.onUserTyping", data);
+      if (data.userId !== state.currentUser?.id) {
+        dispatch({ type: "UPDATE_TYPING", payload: data });
+      }
     });
 
     socketService.onError((error) => {
-      dispatch({ type: "SET_ERROR", payload: error.message });
+      console.log("chatProvider.onError", error);
+      dispatch({ type: "SET_ERROR", payload: error });
     });
 
     return () => {
       socketService.removeAllListeners();
     };
-  }, []);
+  }, [state.isAuthenticated, state.currentUser?.id]);
 
+  // Auth methods
+  const login = async (email: string, password: string): Promise<void> => {
+    console.log("chatProvider.login");
+    dispatch({ type: "SET_LOADING", payload: true });
+    dispatch({ type: "SET_ERROR", payload: null });
+
+    try {
+      const user = await authService.login({ email, password });
+      dispatch({
+        type: "SET_AUTHENTICATED",
+        payload: { user, isAuthenticated: true },
+      });
+    } catch (error) {
+      dispatch({ type: "SET_ERROR", payload: error });
+      throw error;
+    } finally {
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
+  };
+
+  const register = async (
+    username: string,
+    email: string,
+    password: string
+  ): Promise<void> => {
+    console.log("chatProvider.register");
+    dispatch({ type: "SET_LOADING", payload: true });
+    dispatch({ type: "SET_ERROR", payload: null });
+
+    try {
+      const user = await authService.register({ username, email, password });
+      dispatch({
+        type: "SET_AUTHENTICATED",
+        payload: { user, isAuthenticated: true },
+      });
+    } catch (error) {
+      dispatch({ type: "SET_ERROR", payload: error });
+      throw error;
+    } finally {
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
+  };
+
+  const logout = (): void => {
+    console.log("chatProvider.logout");
+    authService.logout();
+    socketService.disconnect();
+    dispatch({
+      type: "SET_AUTHENTICATED",
+      payload: { user: null, isAuthenticated: false },
+    });
+    dispatch({ type: "SET_CONNECTED", payload: false });
+    dispatch({ type: "SET_CURRENT_ROOM", payload: null });
+    dispatch({ type: "SET_USER_ROOMS", payload: [] });
+    dispatch({ type: "SET_PUBLIC_ROOMS", payload: [] });
+  };
+
+  // Connection methods
   const connect = async (): Promise<void> => {
+    console.log("chatProvider.connect");
+    if (!state.isAuthenticated) {
+      throw new Error("Not authenticated");
+    }
+
     dispatch({ type: "SET_LOADING", payload: true });
     dispatch({ type: "SET_ERROR", payload: null });
 
@@ -206,7 +538,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       await socketService.connect();
       dispatch({ type: "SET_CONNECTED", payload: true });
     } catch (error) {
-      dispatch({ type: "SET_ERROR", payload: "Failed to connect to server" });
+      dispatch({
+        type: "SET_ERROR",
+        payload: {
+          message: "Failed to connect to server",
+          code: "SERVER_ERROR",
+        },
+      });
       throw error;
     } finally {
       dispatch({ type: "SET_LOADING", payload: false });
@@ -214,58 +552,209 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   };
 
   const disconnect = (): void => {
+    console.log("chatProvider.disconnect");
     socketService.disconnect();
     dispatch({ type: "SET_CONNECTED", payload: false });
     dispatch({ type: "SET_CURRENT_ROOM", payload: null });
-    dispatch({ type: "SET_CURRENT_USER", payload: null });
-    dispatch({ type: "SET_MESSAGES", payload: [] });
-    dispatch({ type: "SET_ROOM_PRESENCES", payload: [] });
-    dispatch({ type: "CLEAR_TYPING_USERS" });
   };
 
-  const joinRoom = (roomId: string, userId: string, username: string): void => {
-    dispatch({ type: "SET_CURRENT_USER", payload: { id: userId, username } });
-    dispatch({ type: "SET_ERROR", payload: null });
-    socketService.joinRoom(roomId, userId, username);
-  };
-
-  const leaveRoom = (): void => {
-    socketService.leaveRoom();
-  };
-
-  const sendMessage = (content: string): void => {
-    if (content.trim()) {
-      socketService.sendMessage(content);
+  // Room methods
+  const loadUserRooms = async (): Promise<void> => {
+    try {
+      const rooms = await roomService.getUserRooms();
+      console.log("chatProvider.loadUserRooms");
+      dispatch({ type: "SET_USER_ROOMS", payload: rooms });
+    } catch (error) {
+      dispatch({
+        type: "SET_ERROR",
+        payload: { message: "Failed to load user rooms", code: "SERVER_ERROR" },
+      });
     }
   };
 
-  const startTyping = (): void => {
-    socketService.startTyping();
+  const loadPublicRooms = async (): Promise<void> => {
+    try {
+      const rooms = await roomService.getPublicRooms();
+      console.log("chatProvider.loadPublicRooms");
+      dispatch({ type: "SET_PUBLIC_ROOMS", payload: rooms });
+    } catch (error) {
+      dispatch({
+        type: "SET_ERROR",
+        payload: {
+          message: "Failed to load public rooms",
+          code: "SERVER_ERROR",
+        },
+      });
+    }
   };
 
-  const stopTyping = (): void => {
-    socketService.stopTyping();
+  const createRoom = async (
+    name: string,
+    description: string,
+    isPrivate: boolean,
+    passcode?: string
+  ): Promise<void> => {
+    console.log("C1 chatProvider.createRoom");
+    try {
+      const room = await roomService.createRoom({
+        name,
+        description,
+        isPrivate,
+        passcode,
+      });
+      await socketService.joinRoom(room.id, false);
+      console.log(room);
+      dispatch({ type: "ADD_USER_ROOM", payload: room });
+      dispatch({ type: "SET_CURRENT_ROOM", payload: room.id });
+      dispatch({ type: "SET_ERROR", payload: null });
+    } catch (error) {
+      dispatch({ type: "SET_ERROR", payload: error });
+      throw error;
+    }
   };
 
-  const updatePresence = (status: "online" | "offline"): void => {
-    socketService.updatePresence(status);
+  const joinRoom = async (roomId: string, passcode?: string): Promise<void> => {
+    console.log("J1 chatProvider.joinRoom");
+    dispatch({ type: "SET_ERROR", payload: null });
+    try {
+      const { room, alreadyJoined } = await roomService.joinRoom({
+        roomId,
+        passcode,
+      });
+      await socketService.joinRoom(room.id, alreadyJoined);
+      dispatch({ type: "ADD_USER_ROOM", payload: room });
+      dispatch({ type: "SET_CURRENT_ROOM", payload: room.id });
+      dispatch({ type: "SET_ERROR", payload: null });
+    } catch (error) {
+      console.log(error.message);
+      dispatch({ type: "SET_ERROR", payload: error });
+      throw error;
+    }
   };
 
-  const refreshPresences = (): void => {
-    socketService.getRoomPresences();
+  const leaveRoom = async (roomId: string): Promise<void> => {
+    console.log("L1 chatProvider.leaveRoom", state.currentRoomId);
+    try {
+      await roomService.leaveRoom(roomId);
+      console.log("after room service", state.currentRoomId);
+      await socketService.leaveRoom(roomId);
+      dispatch({ type: "SET_ERROR", payload: null });
+    } catch (error) {
+      dispatch({ type: "SET_ERROR", payload: error });
+      throw error;
+    }
+  };
+
+  const switchToRoom = async (
+    roomId: string,
+    passcode?: string
+  ): Promise<void> => {
+    console.log("chatProvider.switchToRoom", roomId);
+    await joinRoom(roomId, passcode);
+  };
+
+  const goToLobby = (): void => {
+    console.log("chatProvider.goToLobby");
+    dispatch({ type: "SET_CURRENT_ROOM", payload: null });
+  };
+
+  // Message methods
+  const sendMessage = async (content: string): Promise<void> => {
+    console.log("M1 chatProvider.sendMessage");
+    if (content.trim() && state.currentRoomId) {
+      await socketService.sendMessage(state.currentRoomId, content);
+    }
+  };
+
+  const loadMoreMessages = async (roomId: string): Promise<void> => {
+    console.log("LM1 chatProvider.loadMoreMessages");
+    const roomData = state.messagesByRoom[roomId];
+    console.log(state);
+    if (!roomData || roomData.isLoading || !roomData.hasMore) {
+      return;
+    }
+
+    dispatch({
+      type: "SET_MESSAGES_LOADING",
+      payload: { roomId, loading: true },
+    });
+
+    try {
+      const request: MessagePaginationRequest = {
+        roomId,
+        limit: 50,
+        before: roomData.nextCursor, // should be the ID of the oldest message
+      };
+      await socketService.loadMoreMessages(request);
+    } catch (error) {
+      dispatch({
+        type: "SET_ERROR",
+        payload: {
+          message: "Failed to load more messages",
+          code: "SERVER_ERROR",
+        },
+      });
+      dispatch({
+        type: "SET_MESSAGES_LOADING",
+        payload: { roomId, loading: false },
+      });
+    }
+  };
+
+  // Typing methods
+  const startTyping = (roomId: string): void => {
+    console.log("socketService.startTyping");
+    socketService.startTyping(roomId);
+  };
+
+  const stopTyping = (roomId: string): void => {
+    console.log("socketService.stopTyping");
+    socketService.stopTyping(roomId);
+  };
+
+  // Utility methods
+  const getRoomData = (roomId: string) => {
+    // console.log("chatProvider.getRoomData");
+    return (
+      state.messagesByRoom[roomId] || {
+        messages: [],
+        hasMore: false,
+        isLoading: false,
+      }
+    );
+  };
+
+  const getRoomPresences = (roomId: string): UserPresence[] => {
+    // console.log("chatProvider.getRoomPresences", state.presencesByRoom[roomId]);
+    return state.presencesByRoom[roomId] || [];
+  };
+
+  const getRoomTyping = (roomId: string): TypingUser[] => {
+    // console.log("chatProvider.getRoomTyping");
+    return state.typingByRoom[roomId] || [];
   };
 
   const value: ChatContextType = {
     state,
+    login,
+    register,
+    logout,
     connect,
     disconnect,
+    loadUserRooms,
+    loadPublicRooms,
+    createRoom,
     joinRoom,
     leaveRoom,
+    switchToRoom,
+    goToLobby,
     sendMessage,
+    loadMoreMessages,
     startTyping,
     stopTyping,
-    updatePresence,
-    refreshPresences,
+    getRoomData,
+    getRoomPresences,
+    getRoomTyping,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
