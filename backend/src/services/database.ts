@@ -8,18 +8,26 @@ import {
   MessageResponse,
 } from "../utils/types";
 import { logger } from "../utils/logger";
+
 const log = logger.child({ mod: "db" });
+const connectionString =
+  process.env.DATABASE_URL ||
+  `postgresql://${process.env.DB_USER || "postgres"}:${
+    process.env.DB_PASSWORD || "password"
+  }@${process.env.DB_HOST || "localhost"}:${process.env.DB_PORT || "5432"}/${
+    process.env.DB_NAME || "chat_db"
+  }`;
 
 export class DatabaseService {
   private pool: Pool;
 
   constructor() {
     this.pool = new Pool({
-      host: process.env.DB_HOST || "localhost",
-      port: parseInt(process.env.DB_PORT || "5432"),
-      database: process.env.DB_NAME || "chat_db",
-      user: process.env.DB_USER || "postgres",
-      password: process.env.DB_PASSWORD || "password",
+      connectionString,
+      ssl:
+        process.env.NODE_ENV === "production"
+          ? { rejectUnauthorized: false }
+          : undefined,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,

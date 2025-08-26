@@ -63,7 +63,7 @@ async function startServer() {
   // Socket.IO connection handling
   socketHandler(io, chatService);
 
-  const PORT = process.env.PORT || 8001;
+  const PORT = Number(process.env.PORT) || 8001;
 
   server.listen(PORT, () => {
     logger.info({ port: PORT }, "Server started");
