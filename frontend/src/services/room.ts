@@ -5,17 +5,9 @@ import {
   MessagePaginationRequest,
   MessageResponse,
   ApiErrorCode,
+  ApiError,
 } from "../types";
 import { authService } from "./auth";
-
-class ApiError extends Error {
-  code?: ApiErrorCode;
-  constructor(message: string, code?: ApiErrorCode) {
-    super(message);
-    this.name = "ApiError";
-    this.code = code;
-  }
-}
 
 class RoomService {
   private baseUrl: string;
@@ -35,19 +27,22 @@ class RoomService {
       headers["Authorization"] = authHeader;
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      console.log(error);
-      const message: string = error?.error?.message ?? "Request failed";
-      const code: ApiErrorCode | undefined = error?.error?.code;
-      throw new ApiError(message, code);
+    let response: Response;
+    try {
+      response = await fetch(url, { ...options, headers });
+    } catch {
+      throw new ApiError("Network error", "GENERIC");
     }
-
+    if (!response.ok) {
+      try {
+        const body = await response.json();
+        const message: string = body?.error?.message ?? "Request failed";
+        const code: ApiErrorCode | undefined = body?.error?.code;
+        throw new ApiError(message, code);
+      } catch {
+        throw new ApiError("Request failed", "GENERIC");
+      }
+    }
     return response.json();
   }
 

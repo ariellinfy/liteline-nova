@@ -1,10 +1,27 @@
-import { AuthUser, LoginRequest, RegisterRequest } from "../types";
+import {
+  ApiError,
+  ApiErrorCode,
+  AuthUser,
+  LoginRequest,
+  RegisterRequest,
+} from "../types";
 
 class AuthService {
   private baseUrl: string;
 
   constructor() {
     this.baseUrl = import.meta.env.VITE_SERVER_URL || "http://localhost:3001";
+  }
+
+  private async toApiError(response: Response, fallback: string) {
+    try {
+      const body = await response.json();
+      const message: string = body?.error?.message ?? fallback;
+      const code = body?.error?.code as ApiErrorCode | undefined;
+      return new ApiError(message, code);
+    } catch {
+      return new ApiError(fallback, "GENERIC");
+    }
   }
 
   async register(data: RegisterRequest): Promise<AuthUser> {
@@ -16,10 +33,8 @@ class AuthService {
       body: JSON.stringify(data),
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || "Registration failed");
-    }
+    if (!response.ok)
+      throw await this.toApiError(response, "Registration failed");
 
     const result = await response.json();
     const authUser: AuthUser = {
@@ -43,10 +58,7 @@ class AuthService {
       body: JSON.stringify(data),
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || "Login failed");
-    }
+    if (!response.ok) throw await this.toApiError(response, "Login failed");
 
     const result = await response.json();
     const authUser: AuthUser = {

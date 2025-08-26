@@ -57,6 +57,7 @@ const RegisterForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
           required
           disabled={isSubmitting}
           maxLength={50}
+          autoComplete="username"
         />
       </div>
 
@@ -79,6 +80,7 @@ const RegisterForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
           placeholder="Enter your email"
           required
           disabled={isSubmitting}
+          autoComplete="email"
         />
       </div>
 
@@ -102,6 +104,7 @@ const RegisterForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
           required
           disabled={isSubmitting}
           minLength={6}
+          autoComplete="new-password"
         />
         <p className="mt-1 text-xs text-left text-gray-500 dark:text-gray-400">
           Must be at least 6 characters long
@@ -131,6 +134,7 @@ const RegisterForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
           placeholder="Confirm your password"
           required
           disabled={isSubmitting}
+          autoComplete="new-password"
         />
         {showPasswordError && (
           <p className="mt-1 text-xs text-left text-red-600 dark:text-red-400">
@@ -141,7 +145,7 @@ const RegisterForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
 
       {state.error && (
         <div className="p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg text-sm">
-          {state.error}
+          {state.error.message}
         </div>
       )}
 

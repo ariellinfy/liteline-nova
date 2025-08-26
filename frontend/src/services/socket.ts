@@ -5,8 +5,12 @@ import {
   UserPresence,
   MessagePaginationRequest,
   MessageResponse,
+  ApiError,
 } from "../types";
 import { authService } from "./auth";
+import { makeLogger } from "../utils/log";
+
+const { log } = makeLogger("SocketService");
 
 type RoomUpdatePayload =
   | { type: "new_message"; message: Message }
@@ -36,7 +40,6 @@ class SocketService {
 
   // Config
   private serverUrl: string;
-  private debug: boolean;
 
   private readonly idleThresholdMs: number;
   private readonly periodicMs: number;
@@ -68,7 +71,6 @@ class SocketService {
       opts.serverUrl ||
       import.meta.env.VITE_SERVER_URL ||
       "http://localhost:3001";
-    this.debug = !!opts.debug;
 
     this.idleThresholdMs = opts.idleThresholdMs ?? 30000;
     this.periodicMs = opts.periodicMs ?? 25000;
@@ -79,7 +81,7 @@ class SocketService {
   // ---------- Public API ----------
 
   connect(): Promise<void> {
-    this.log("connect()");
+    log("connect()");
     return new Promise((resolve, reject) => {
       try {
         const token = authService.getStoredAuth()?.token;
@@ -90,6 +92,8 @@ class SocketService {
 
         this.socket = io(this.serverUrl, {
           timeout: 20000,
+          transports: ["websocket"],
+          withCredentials: true,
           path: "/socket.io",
           auth: {
             token,
@@ -99,7 +103,7 @@ class SocketService {
         // Socket lifecycle
         this.socket.on("connect", this.handleConnect(resolve));
         this.socket.on("connect_error", (err) => {
-          this.log("connect_error", err);
+          log("connect_error", err);
           reject(err);
         });
         this.socket.on("disconnect", this.handleDisconnect);
@@ -113,7 +117,7 @@ class SocketService {
   }
 
   disconnect(): void {
-    this.log("disconnect()");
+    log("disconnect()");
     this.stopHeartbeat();
     this.detachActivityListeners();
     this.resetHeartbeatState();
@@ -122,86 +126,86 @@ class SocketService {
   }
 
   isConnected(): boolean {
-    this.log("isConnected");
+    log("isConnected");
     return this.socket?.connected ?? false;
   }
 
   // ---- Room + messaging actions (also mark as activity) ----
   // Room operations
   joinRoom(roomId: string, alreadyJoined: boolean): void {
-    this.log("joinRoom J9 C8");
+    log("joinRoom J9 C8");
     this.registerActivity();
     this.socket?.emit("join_room", { roomId, alreadyJoined });
   }
 
   leaveRoom(roomId: string): void {
-    this.log("eaveRoom L5 ");
+    log("eaveRoom L5 ");
     this.registerActivity();
     this.socket?.emit("leave_room", { roomId });
   }
 
   // Messaging
   sendMessage(roomId: string, content: string): void {
-    this.log("sendMessage M2");
+    log("sendMessage M2");
     if (!content.trim()) return;
     this.registerActivity();
     this.socket?.emit("send_message", { roomId, content: content.trim() });
   }
 
   loadMoreMessages(request: MessagePaginationRequest): void {
-    this.log("loadMoreMessages");
+    log("loadMoreMessages");
     this.socket?.emit("load_more_messages", request);
   }
 
   // Typing indicators
   startTyping(roomId: string): void {
-    this.log("startTyping");
+    log("startTyping");
     this.registerActivity();
     this.socket?.emit("typing_start", { roomId });
   }
 
   stopTyping(roomId: string): void {
-    this.log("stopTyping");
+    log("stopTyping");
     this.registerActivity();
     this.socket?.emit("typing_stop", { roomId });
   }
 
   // Presence
   getRoomPresences(roomId: string): void {
-    this.log("getRoomPresences");
+    log("getRoomPresences");
     this.socket?.emit("get_room_presences", { roomId });
   }
 
   // getMyRooms(): void {
-  //   this.log("getMyRooms");
+  //   log("getMyRooms");
   //   this.socket?.emit("get_my_rooms");
   // }
 
   // ---- Event subscriptions (call these once per component mount) ----
   onRoomUpdate(callback: (data: RoomUpdatePayload) => void): void {
-    this.log("onRoomUpdate");
+    log("onRoomUpdate");
     this.socket?.on("room_update", callback);
   }
 
   onRoomJoined(
     callback: (data: { roomId: string; presences: UserPresence[] }) => void
   ): void {
-    this.log("onRoomJoined");
+    log("onRoomJoined");
     this.socket?.on("room_joined", callback);
   }
 
   onRoomLeft(callback: (data: { roomId: string }) => void): void {
-    this.log("onRoomLeft");
+    log("onRoomLeft");
     this.socket?.on("room_left", callback);
   }
 
   onUserTyping(callback: (data: TypingUser) => void): void {
-    this.log("onUserTyping");
+    log("onUserTyping");
     this.socket?.on("user_typing", callback);
   }
 
   onRecentMessages(callback: (data: MessageResponse) => void): void {
-    this.log("onRecentMessages");
+    log("onRecentMessages");
     this.socket?.on("recent_messages", callback);
   }
 
@@ -213,35 +217,35 @@ class SocketService {
       nextCursor?: string;
     }) => void
   ): void {
-    this.log("onMoreMessagesLoaded");
+    log("onMoreMessagesLoaded");
     this.socket?.on("more_messages_loaded", callback);
   }
 
   onRoomPresences(
     callback: (data: { roomId: string; presences: UserPresence[] }) => void
   ): void {
-    this.log("onRoomPresences");
+    log("onRoomPresences");
     this.socket?.on("room_presences", callback);
   }
 
   onMyRooms(callback: (data: { rooms: any[] }) => void): void {
-    this.log("onMyRooms");
+    log("onMyRooms");
     this.socket?.on("my_rooms", callback);
   }
 
-  onError(callback: (error: { message: string }) => void): void {
-    this.log("onError");
+  onError(callback: (error: ApiError) => void): void {
+    log("onError");
     this.socket?.on("error", callback);
   }
 
   removeAllListeners(): void {
-    this.log("removeAllListeners");
+    log("removeAllListeners");
     this.socket?.removeAllListeners();
   }
 
   // ---------- Private: socket lifecycle ----------
   private handleConnect = (resolve: () => void) => () => {
-    this.log("connected");
+    log("connected");
     // Fresh connection → clear stale heartbeat state
     this.resetHeartbeatState();
 
@@ -257,7 +261,7 @@ class SocketService {
   };
 
   private handleDisconnect = (reason: string) => {
-    this.log("disconnected", reason);
+    log("disconnected", reason);
     this.stopHeartbeat();
     this.detachActivityListeners();
     this.resetHeartbeatState();
@@ -306,7 +310,7 @@ class SocketService {
 
   // ---------- Private: heartbeat control ----------
   private startHeartbeat(): void {
-    this.log("startHeartbeat");
+    log("startHeartbeat");
     if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
 
     this.heartbeatInterval = setInterval(() => {
@@ -323,7 +327,7 @@ class SocketService {
   }
 
   private stopHeartbeat(): void {
-    this.log("stopHeartbeat");
+    log("stopHeartbeat");
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
@@ -331,7 +335,7 @@ class SocketService {
   }
 
   private emitHeartbeat(reason: string) {
-    this.log("emitHeartbeat", reason);
+    log("emitHeartbeat", reason);
     if (!this.socket?.connected) return;
     const now = Date.now();
 
@@ -346,14 +350,14 @@ class SocketService {
     // Ack timeout guard (avoid permanent lock if ack is lost)
     if (this.heartbeatAckTimer) clearTimeout(this.heartbeatAckTimer);
     this.heartbeatAckTimer = setTimeout(() => {
-      this.log("heartbeat ack timed out → unlocking");
+      log("heartbeat ack timed out → unlocking");
       this.awaitingAck = false;
       this.heartbeatAckTimer = null;
     }, this.ackTimeoutMs);
   }
 
   private handleHeartbeatAck = () => {
-    this.log("heartbeat_ack");
+    log("heartbeat_ack");
     this.awaitingAck = false;
     if (this.heartbeatAckTimer) {
       clearTimeout(this.heartbeatAckTimer);
@@ -369,11 +373,6 @@ class SocketService {
       this.heartbeatAckTimer = null;
     }
   }
-
-  // ---------- Private: utils ----------
-  private log(...args: any[]) {
-    if (this.debug) console.log("[SocketService]", ...args);
-  }
 }
 
-export const socketService = new SocketService({ debug: false });
+export const socketService = new SocketService();

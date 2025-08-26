@@ -47,6 +47,7 @@ const LoginForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
           placeholder="Enter your email"
           required
           disabled={isSubmitting}
+          autoComplete="email"
         />
       </div>
 
@@ -70,12 +71,13 @@ const LoginForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
           required
           disabled={isSubmitting}
           minLength={6}
+          autoComplete="current-password"
         />
       </div>
 
       {state.error && (
         <div className="p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg text-sm">
-          {state.error}
+          {state.error.message}
         </div>
       )}
 

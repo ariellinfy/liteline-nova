@@ -11,6 +11,7 @@ import {
 import { socketService } from "../services/socket";
 import { authService } from "../services/auth";
 import { roomService } from "../services/room";
+import { makeLogger } from "../utils/log";
 
 interface ChatState {
   // Auth
@@ -93,7 +94,8 @@ type ChatAction =
   | { type: "UPDATE_TYPING"; payload: TypingUser }
   | { type: "CLEAR_ROOM_TYPING"; payload: string }
   | { type: "SET_ERROR"; payload: ApiError | null }
-  | { type: "SET_LOADING"; payload: boolean };
+  | { type: "SET_LOADING"; payload: boolean }
+  | { type: "RESET_STATE" };
 
 const initialState: ChatState = {
   currentUser: null,
@@ -190,6 +192,8 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         hasMore: false,
         isLoading: false,
       };
+      const existingIds = new Set(existingData.messages.map((m) => m.id));
+      const uniqueNew = messages.filter((m) => !existingIds.has(m.id));
 
       return {
         ...state,
@@ -197,7 +201,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           ...state.messagesByRoom,
           [prependRoomId]: {
             ...existingData,
-            messages: [...messages, ...existingData.messages],
+            messages: [...uniqueNew, ...existingData.messages],
             hasMore,
             nextCursor,
             isLoading: false,
@@ -307,6 +311,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "SET_LOADING":
       return { ...state, isLoading: action.payload };
 
+    case "RESET_STATE":
+      return { ...initialState };
+
     default:
       return state;
   }
@@ -358,6 +365,7 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(chatReducer, initialState);
+  const { log, error } = makeLogger("ChatContext");
 
   // Initialize auth state on mount
   useEffect(() => {
@@ -375,7 +383,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!state.isAuthenticated) return;
 
     socketService.onRoomUpdate((data) => {
-      console.log("M5 9 C16 chatProvider.onRoomUpdate", data);
+      log("onRoomUpdate", data);
+
       if (data.type === "new_message") {
         dispatch({ type: "ADD_MESSAGE", payload: data.message });
       } else if (
@@ -385,7 +394,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         data.type === "user_disconnected"
       ) {
         if (data.presences && data.roomId) {
-          // console.log("room update", data);
           dispatch({
             type: "SET_ROOM_PRESENCES",
             payload: { roomId: data.roomId, presences: data.presences },
@@ -395,8 +403,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     });
 
     socketService.onRoomJoined((data) => {
-      console.log("J16 C24 chatProvider.onRoomJoined", data);
-
+      log("onRoomJoined", data);
       dispatch({
         type: "SET_ROOM_PRESENCES",
         payload: { roomId: data.roomId, presences: data.presences },
@@ -404,14 +411,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     });
 
     socketService.onRoomLeft((data) => {
-      console.log("L9 chatProvider.onRoomLeft", data);
+      log("onRoomLeft", data);
       dispatch({ type: "CLEAR_ROOM_DATA", payload: data.roomId });
       dispatch({ type: "REMOVE_USER_ROOM", payload: data.roomId });
       dispatch({ type: "SET_CURRENT_ROOM", payload: null });
     });
 
     socketService.onRoomPresences((data) => {
-      console.log("chatProvider.onRoomPresences", data);
+      log("onRoomPresences", data);
       dispatch({
         type: "SET_ROOM_PRESENCES",
         payload: { roomId: data.roomId, presences: data.presences },
@@ -419,12 +426,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     });
 
     socketService.onMyRooms((data) => {
-      console.log("chatProvider.onMyRooms", data);
+      log("onMyRooms", data);
       dispatch({ type: "SET_USER_ROOMS", payload: data.rooms });
     });
 
     socketService.onRecentMessages((data) => {
-      console.log("J18 chatProvider.onRecentMessages", data);
+      log("onRecentMessages", data);
       dispatch({
         type: "SET_ROOM_MESSAGES",
         // payload: { roomId: data.roomId, messages: data.messages },
@@ -438,7 +445,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     });
 
     socketService.onMoreMessagesLoaded((data) => {
-      console.log("chatProvider.onMoreMessagesLoaded", data);
+      log("onMoreMessagesLoaded", data);
       dispatch({
         type: "PREPEND_MESSAGES",
         payload: {
@@ -451,15 +458,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     });
 
     socketService.onUserTyping((data) => {
-      console.log("chatProvider.onUserTyping", data);
+      log("onUserTyping", data);
       if (data.userId !== state.currentUser?.id) {
         dispatch({ type: "UPDATE_TYPING", payload: data });
       }
     });
 
-    socketService.onError((error) => {
-      console.log("chatProvider.onError", error);
-      dispatch({ type: "SET_ERROR", payload: error });
+    socketService.onError((error: any) => {
+      log("onError", error);
+      const wrapped =
+        error instanceof ApiError
+          ? error
+          : new ApiError(error?.message || "Socket error", "GENERIC");
+      dispatch({ type: "SET_ERROR", payload: wrapped });
     });
 
     return () => {
@@ -469,7 +480,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // Auth methods
   const login = async (email: string, password: string): Promise<void> => {
-    console.log("chatProvider.login");
+    log("login");
     dispatch({ type: "SET_LOADING", payload: true });
     dispatch({ type: "SET_ERROR", payload: null });
 
@@ -480,7 +491,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         payload: { user, isAuthenticated: true },
       });
     } catch (error) {
-      dispatch({ type: "SET_ERROR", payload: error });
+      dispatch({ type: "SET_ERROR", payload: error as ApiError });
       throw error;
     } finally {
       dispatch({ type: "SET_LOADING", payload: false });
@@ -492,7 +503,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     email: string,
     password: string
   ): Promise<void> => {
-    console.log("chatProvider.register");
+    log("register");
     dispatch({ type: "SET_LOADING", payload: true });
     dispatch({ type: "SET_ERROR", payload: null });
 
@@ -503,7 +514,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         payload: { user, isAuthenticated: true },
       });
     } catch (error) {
-      dispatch({ type: "SET_ERROR", payload: error });
+      dispatch({ type: "SET_ERROR", payload: error as ApiError });
       throw error;
     } finally {
       dispatch({ type: "SET_LOADING", payload: false });
@@ -511,22 +522,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = (): void => {
-    console.log("chatProvider.logout");
+    log("logout");
     authService.logout();
     socketService.disconnect();
-    dispatch({
-      type: "SET_AUTHENTICATED",
-      payload: { user: null, isAuthenticated: false },
-    });
-    dispatch({ type: "SET_CONNECTED", payload: false });
-    dispatch({ type: "SET_CURRENT_ROOM", payload: null });
-    dispatch({ type: "SET_USER_ROOMS", payload: [] });
-    dispatch({ type: "SET_PUBLIC_ROOMS", payload: [] });
+    dispatch({ type: "RESET_STATE" });
   };
 
   // Connection methods
   const connect = async (): Promise<void> => {
-    console.log("chatProvider.connect");
+    log("connect");
     if (!state.isAuthenticated) {
       throw new Error("Not authenticated");
     }
@@ -540,10 +544,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       dispatch({
         type: "SET_ERROR",
-        payload: {
-          message: "Failed to connect to server",
-          code: "SERVER_ERROR",
-        },
+        payload: new ApiError("Failed to connect to server", "SERVER_ERROR"),
       });
       throw error;
     } finally {
@@ -552,7 +553,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   };
 
   const disconnect = (): void => {
-    console.log("chatProvider.disconnect");
+    log("disconnect");
     socketService.disconnect();
     dispatch({ type: "SET_CONNECTED", payload: false });
     dispatch({ type: "SET_CURRENT_ROOM", payload: null });
@@ -560,30 +561,27 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // Room methods
   const loadUserRooms = async (): Promise<void> => {
+    log("loadUserRooms");
     try {
       const rooms = await roomService.getUserRooms();
-      console.log("chatProvider.loadUserRooms");
       dispatch({ type: "SET_USER_ROOMS", payload: rooms });
     } catch (error) {
       dispatch({
         type: "SET_ERROR",
-        payload: { message: "Failed to load user rooms", code: "SERVER_ERROR" },
+        payload: new ApiError("Failed to load user rooms", "SERVER_ERROR"),
       });
     }
   };
 
   const loadPublicRooms = async (): Promise<void> => {
+    log("loadPublicRooms");
     try {
       const rooms = await roomService.getPublicRooms();
-      console.log("chatProvider.loadPublicRooms");
       dispatch({ type: "SET_PUBLIC_ROOMS", payload: rooms });
     } catch (error) {
       dispatch({
         type: "SET_ERROR",
-        payload: {
-          message: "Failed to load public rooms",
-          code: "SERVER_ERROR",
-        },
+        payload: new ApiError("Failed to load public rooms", "SERVER_ERROR"),
       });
     }
   };
@@ -594,7 +592,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     isPrivate: boolean,
     passcode?: string
   ): Promise<void> => {
-    console.log("C1 chatProvider.createRoom");
+    log("createRoom");
     try {
       const room = await roomService.createRoom({
         name,
@@ -603,18 +601,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         passcode,
       });
       await socketService.joinRoom(room.id, false);
-      console.log(room);
       dispatch({ type: "ADD_USER_ROOM", payload: room });
       dispatch({ type: "SET_CURRENT_ROOM", payload: room.id });
       dispatch({ type: "SET_ERROR", payload: null });
     } catch (error) {
-      dispatch({ type: "SET_ERROR", payload: error });
+      dispatch({ type: "SET_ERROR", payload: error as ApiError });
       throw error;
     }
   };
 
   const joinRoom = async (roomId: string, passcode?: string): Promise<void> => {
-    console.log("J1 chatProvider.joinRoom");
+    log("joinRoom");
     dispatch({ type: "SET_ERROR", payload: null });
     try {
       const { room, alreadyJoined } = await roomService.joinRoom({
@@ -626,21 +623,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "SET_CURRENT_ROOM", payload: room.id });
       dispatch({ type: "SET_ERROR", payload: null });
     } catch (error) {
-      console.log(error.message);
-      dispatch({ type: "SET_ERROR", payload: error });
+      dispatch({ type: "SET_ERROR", payload: error as ApiError });
       throw error;
     }
   };
 
   const leaveRoom = async (roomId: string): Promise<void> => {
-    console.log("L1 chatProvider.leaveRoom", state.currentRoomId);
+    log("leaveRoom");
     try {
       await roomService.leaveRoom(roomId);
-      console.log("after room service", state.currentRoomId);
       await socketService.leaveRoom(roomId);
       dispatch({ type: "SET_ERROR", payload: null });
     } catch (error) {
-      dispatch({ type: "SET_ERROR", payload: error });
+      dispatch({ type: "SET_ERROR", payload: error as ApiError });
       throw error;
     }
   };
@@ -649,27 +644,27 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     roomId: string,
     passcode?: string
   ): Promise<void> => {
-    console.log("chatProvider.switchToRoom", roomId);
+    log("switchToRoom", roomId);
     await joinRoom(roomId, passcode);
   };
 
   const goToLobby = (): void => {
-    console.log("chatProvider.goToLobby");
+    log("goToLobby");
     dispatch({ type: "SET_CURRENT_ROOM", payload: null });
   };
 
   // Message methods
   const sendMessage = async (content: string): Promise<void> => {
-    console.log("M1 chatProvider.sendMessage");
+    log("sendMessage");
     if (content.trim() && state.currentRoomId) {
       await socketService.sendMessage(state.currentRoomId, content);
     }
   };
 
   const loadMoreMessages = async (roomId: string): Promise<void> => {
-    console.log("LM1 chatProvider.loadMoreMessages");
+    log("loadMoreMessages");
     const roomData = state.messagesByRoom[roomId];
-    console.log(state);
+
     if (!roomData || roomData.isLoading || !roomData.hasMore) {
       return;
     }
@@ -689,11 +684,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       dispatch({
         type: "SET_ERROR",
-        payload: {
-          message: "Failed to load more messages",
-          code: "SERVER_ERROR",
-        },
+        payload: new ApiError("Failed to load more messages", "SERVER_ERROR"),
       });
+    } finally {
       dispatch({
         type: "SET_MESSAGES_LOADING",
         payload: { roomId, loading: false },
@@ -703,18 +696,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // Typing methods
   const startTyping = (roomId: string): void => {
-    console.log("socketService.startTyping");
+    log("startTyping");
     socketService.startTyping(roomId);
   };
 
   const stopTyping = (roomId: string): void => {
-    console.log("socketService.stopTyping");
+    log("stopTyping");
     socketService.stopTyping(roomId);
   };
 
   // Utility methods
   const getRoomData = (roomId: string) => {
-    // console.log("chatProvider.getRoomData");
+    // log("getRoomData");
     return (
       state.messagesByRoom[roomId] || {
         messages: [],
@@ -725,12 +718,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getRoomPresences = (roomId: string): UserPresence[] => {
-    // console.log("chatProvider.getRoomPresences", state.presencesByRoom[roomId]);
+    // log("getRoomPresences");
     return state.presencesByRoom[roomId] || [];
   };
 
   const getRoomTyping = (roomId: string): TypingUser[] => {
-    // console.log("chatProvider.getRoomTyping");
+    // log("getRoomTyping");
     return state.typingByRoom[roomId] || [];
   };
 

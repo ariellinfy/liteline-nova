@@ -101,7 +101,11 @@ export type ApiErrorCode =
   | "SERVER_ERROR"
   | "GENERIC";
 
-export interface ApiError {
-  message: string;
+export class ApiError extends Error {
   code?: ApiErrorCode;
+  constructor(message: string, code?: ApiErrorCode) {
+    super(message);
+    this.name = "ApiError";
+    this.code = code;
+  }
 }
