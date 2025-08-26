@@ -1,0 +1,25 @@
+# Nginx
+nginx.pid
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+temp/
+cache/
+client_body_temp/
+proxy_temp/
+fastcgi_temp/
+uwsgi_temp/
+scgi_temp/
+
+# Certificates (if generated locally)
+*.pem
+*.crt
+*.key
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db
