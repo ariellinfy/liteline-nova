@@ -11,8 +11,10 @@ import {
   JoinRoomRequest,
   MessagePaginationRequest,
   MessageResponse,
-  Error,
-} from "../types";
+  ApiError,
+} from "../utils/types";
+import { logger } from "../utils/logger";
+const log = logger.child({ mod: "chat" });
 
 export class ChatService {
   private dbService: DatabaseService;
@@ -34,7 +36,7 @@ export class ChatService {
 
     // Start heartbeat cleanup process
     this.heartbeatInterval = setInterval(async () => {
-      console.log("1 interval cleanupStaleUsers");
+      log.debug("cleanupStaleUsers tick");
       await this.cleanupStaleUsers();
     }, 30000); // Check every 30 seconds
   }
@@ -45,7 +47,7 @@ export class ChatService {
     email: string,
     password: string
   ): Promise<{ user: User; token: string }> {
-    console.log("services/chat/registerUser");
+    log.debug("registerUser");
     const user = await this.dbService.createUser(username, email, password);
 
     const token = this.authService.generateToken({
@@ -61,7 +63,7 @@ export class ChatService {
     email: string,
     password: string
   ): Promise<{ user: User; token: string } | null> {
-    console.log("services/chat/loginUser");
+    log.debug("loginUser");
     const user = await this.dbService.authenticateUser(email, password);
 
     if (!user) {
@@ -79,22 +81,22 @@ export class ChatService {
 
   // Room methods
   async getPublicRooms(userId?: string): Promise<Room[]> {
-    console.log("services/chat/getPublicRooms");
+    log.debug("getPublicRooms");
     return await this.dbService.getPublicRooms(userId);
   }
 
   async getUserRooms(userId: string): Promise<Room[]> {
-    console.log("services/chat/getUserRooms", userId);
+    log.debug("getUserRooms");
     return await this.dbService.getUserRooms(userId);
   }
 
   async getUserRoomIds(userId: string): Promise<string[]> {
-    console.log("services/chat/getUserRoomIds", userId);
+    log.debug("getUserRoomIds");
     return await this.dbService.getUserRoomIds(userId);
   }
 
   async isUserInRoom(userId: string, roomId: string): Promise<boolean> {
-    console.log("J12 services/chat/isUserInRoom");
+    log.debug("isUserInRoom");
     return await this.dbService.isUserInRoom(userId, roomId);
   }
 
@@ -102,7 +104,7 @@ export class ChatService {
     request: CreateRoomRequest,
     createdBy: string
   ): Promise<Room> {
-    console.log("C4 services/chat/createRoom");
+    log.debug("createRoom");
     const room = await this.dbService.createRoom(
       request.name,
       request.description,
@@ -126,12 +128,11 @@ export class ChatService {
     success: boolean;
     alreadyJoined?: boolean;
     room?: Room;
-    error?: Error;
+    error?: ApiError;
   }> {
-    console.log("J4 services/chat/joinRoom");
+    log.debug("joinRoom");
     const room = await this.dbService.getRoomByName(request.roomId);
     if (!room) {
-      console.log("no room");
       return {
         success: false,
         error: { message: "Room not found", code: "NOT_FOUND" },
@@ -180,7 +181,7 @@ export class ChatService {
   }
 
   async leaveRoom(userId: string, roomId: string): Promise<void> {
-    console.log("L4 services/chat/leaveRoom", roomId, userId);
+    log.debug("leaveRoom");
     const room = await this.dbService.getRoomById(roomId);
 
     // Remove from database & Redis
@@ -197,7 +198,7 @@ export class ChatService {
     content: string,
     messageType: "text" | "system" = "text"
   ): Promise<Message> {
-    console.log("M4 J17 C12 services/chat/createMessage");
+    log.debug("createMessage");
     // Store in PostgreSQL first (persistent storage)
     const message = await this.dbService.storeMessage(
       roomId,
@@ -220,7 +221,7 @@ export class ChatService {
     roomId: string,
     limit: number = 50
   ): Promise<Message[]> {
-    console.log("C17 services/chat/getRecentMessages");
+    log.debug("getRecentMessages");
     try {
       // Try to get from Redis cache first
       const cachedMessages = await this.redisService.getRecentMessagesFromCache(
@@ -261,7 +262,8 @@ export class ChatService {
 
       return dbMessages;
     } catch (error) {
-      console.error("Error getting recent messages:", error);
+      log.error(error, "Error getting recent messages");
+
       // Fallback to database only
       return await this.dbService.getRecentMessagesFromDB(roomId, limit);
     }
@@ -271,7 +273,7 @@ export class ChatService {
   async getMessages(
     request: MessagePaginationRequest
   ): Promise<MessageResponse> {
-    console.log("services/chat/getMessages");
+    log.debug("getMessages");
     const { roomId, limit = 50, before } = request;
 
     if (!before) {
@@ -301,45 +303,41 @@ export class ChatService {
 
   // Multi-room presence methods
   async setUserOnlineInRooms(userId: string, username: string): Promise<void> {
-    console.log("J11 C10 services/chat/setUserOnlineInRooms");
+    log.debug("setUserOnlineInRooms");
 
     const roomIds = await this.dbService.getUserRoomIds(userId);
     await this.redisService.setUserOnline(userId, username, roomIds);
-
-    // for (const id of roomIds) {
-    //   await this.redisService.addUserToRoom(userId, id);
-    // }
   }
 
   async setUserOffline(userId: string): Promise<void> {
-    console.log("services/chat/setUserOffline");
+    log.debug("setUserOffline");
     await this.redisService.setUserOffline(userId);
   }
 
   async updateUserHeartbeat(userId: string): Promise<void> {
-    console.log("services/chat/updateUserHeartbeat");
+    log.debug("updateUserHeartbeat");
     await this.redisService.updateUserHeartbeat(userId);
   }
 
   async getUserPresence(userId: string): Promise<UserPresence | null> {
-    console.log("services/chat/getUserPresence");
+    log.debug("getUserPresence");
     return await this.redisService.getUserPresence(userId);
   }
 
   async getUserSocket(userId: string): Promise<string | null> {
-    console.log("services/chat/getUserSocket");
+    log.debug("getUserSocket");
     return await this.redisService.getUserSocket(userId);
   }
 
   async getRoomPresences(roomId: string): Promise<UserPresence[]> {
-    console.log("J15 C22 services/chat/getRoomPresences");
+    log.debug("getRoomPresences");
     return await this.redisService.getRoomPresences(roomId);
   }
 
   // Cache management methods
   async preloadRoomCache(roomId: string): Promise<void> {
+    log.debug("preloadRoomCache");
     try {
-      console.log("J13 C11 services/chat/preloadRoomCache");
       // Check if cache exists
       const hasCache = await this.redisService.hasRecentMessages(roomId);
 
@@ -357,12 +355,12 @@ export class ChatService {
         }
       }
     } catch (error) {
-      console.error(`Error preloading cache for room ${roomId}:`, error);
+      log.error(error, `Error preloading cache for room ${roomId}:`);
     }
   }
 
   async clearRoomCache(roomId: string): Promise<void> {
-    console.log("services/chat/clearRoomCache");
+    log.debug("clearRoomCache");
     await this.redisService.clearRoomCache(roomId);
   }
 
@@ -387,10 +385,10 @@ export class ChatService {
   }
 
   private async cleanupStaleUsers(): Promise<void> {
-    console.log("2 services/chat/cleanupStaleUsers");
+    log.debug("cleanupStaleUsers");
     try {
       const staleUsers = await this.redisService.cleanupStaleUsers();
-      console.log("staleUsers", staleUsers);
+
       for (const userId of staleUsers) {
         const presence = await this.redisService.getUserPresence(userId);
         if (presence) {
@@ -408,12 +406,12 @@ export class ChatService {
         }
       }
     } catch (error) {
-      console.error("Error during stale user cleanup:", error);
+      log.error(error, "Error during stale user cleanup");
     }
   }
 
   async disconnect(): Promise<void> {
-    console.log("services/chat/disconnect");
+    log.debug("disconnect");
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
     }

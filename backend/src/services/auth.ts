@@ -1,5 +1,7 @@
 import jwt from "jsonwebtoken";
-import { AuthPayload } from "../types";
+import { AuthPayload } from "../utils/types";
+import { logger } from "../utils/logger";
+const log = logger.child({ mod: "auth-svc" });
 
 export class AuthService {
   private readonly JWT_SECRET: string;
@@ -12,7 +14,7 @@ export class AuthService {
   }
 
   generateToken(payload: AuthPayload): string {
-    console.log("services/auth/generateToken");
+    log.debug("generateToken");
     return jwt.sign(payload, this.JWT_SECRET, {
       expiresIn: this.JWT_EXPIRES_IN,
     });
@@ -20,7 +22,7 @@ export class AuthService {
 
   verifyToken(token: string): AuthPayload | null {
     try {
-      console.log("services/auth/verifyToken");
+      log.debug("verifyToken");
       return jwt.verify(token, this.JWT_SECRET) as AuthPayload;
     } catch (error) {
       return null;
@@ -28,7 +30,7 @@ export class AuthService {
   }
 
   extractTokenFromHeader(authHeader: string | undefined): string | null {
-    console.log("services/auth/extractTokenFromHeader");
+    log.debug("extractTokenFromHeader");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return null;
     }

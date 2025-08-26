@@ -15,6 +15,7 @@ import {
 import { createAuthRoutes } from "./routes/auth";
 import { createRoomRoutes } from "./routes/rooms";
 import { buildApp } from "./app";
+import { logger } from "./utils/logger";
 
 async function startServer() {
   // Initialize services
@@ -27,11 +28,11 @@ async function startServer() {
 
   // Socket.IO setup with Redis adapter
   const io = new Server(server, {
-    cors: {
-      origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
-      methods: ["GET", "POST"],
-      credentials: true,
-    },
+    // cors: {
+    //   origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    //   methods: ["GET", "POST"],
+    //   credentials: true,
+    // },
     path: "/socket.io",
   });
 
@@ -62,16 +63,16 @@ async function startServer() {
   // Socket.IO connection handling
   socketHandler(io, chatService);
 
-  const PORT = process.env.PORT || 3001;
+  const PORT = process.env.PORT || 8001;
 
   server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Socket.io server ready for connections`);
+    logger.info({ port: PORT }, "Server started");
+    logger.info("Socket.IO ready");
   });
 
   // Graceful shutdown
   process.on("SIGTERM", async () => {
-    console.log("SIGTERM received, shutting down gracefully");
+    logger.warn("SIGTERM received, shutting down gracefully");
 
     await chatService.disconnect();
     await dbService.disconnect();
@@ -80,12 +81,17 @@ async function startServer() {
     await subClient.quit();
 
     server.close(() => {
-      console.log("Server closed");
+      logger.info("HTTP server closed");
       process.exit(0);
     });
+  });
+
+  process.on("SIGINT", async () => {
+    logger.warn("SIGINT received (Ctrl+C), shutting down");
+    process.emit("SIGTERM", "SIGINT");
   });
 
   return { server, io };
 }
 
-startServer().catch(console.error);
+startServer().catch((err) => logger.error(err, "Fatal bootstrap error"));

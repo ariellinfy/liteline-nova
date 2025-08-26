@@ -1,6 +1,14 @@
 import { Pool } from "pg";
 import bcrypt from "bcryptjs";
-import { User, Room, Message, RoomMembership, MessageResponse } from "../types";
+import {
+  User,
+  Room,
+  Message,
+  RoomMembership,
+  MessageResponse,
+} from "../utils/types";
+import { logger } from "../utils/logger";
+const log = logger.child({ mod: "db" });
 
 export class DatabaseService {
   private pool: Pool;
@@ -18,7 +26,7 @@ export class DatabaseService {
     });
 
     this.pool.on("error", (err) => {
-      console.error("Database pool error:", err);
+      log.error(err, "Database pool error");
     });
   }
 
@@ -28,7 +36,7 @@ export class DatabaseService {
     email: string,
     password: string
   ): Promise<User> {
-    console.log("db:createUser");
+    log.debug({ username, email }, "createUser");
     const passwordHash = await bcrypt.hash(password, 12);
 
     const query = `
@@ -56,7 +64,7 @@ export class DatabaseService {
     email: string,
     password: string
   ): Promise<User | null> {
-    console.log("db:authenticateUser");
+    log.debug("authenticateUser");
     const query = `
       SELECT id, username, email, password_hash, created_at
       FROM users 
@@ -85,7 +93,7 @@ export class DatabaseService {
   }
 
   async getUserById(userId: string): Promise<User | null> {
-    console.log("db:getUserById");
+    log.debug("getUserById");
     const query = `
       SELECT id, username, email, created_at
       FROM users 
@@ -115,7 +123,7 @@ export class DatabaseService {
     passcode: string | undefined,
     createdBy: string
   ): Promise<Room> {
-    console.log("C5 db:createRoom");
+    log.debug("createRoom");
     const passcodeHash = passcode ? await bcrypt.hash(passcode, 12) : null;
 
     const query = `
@@ -147,7 +155,7 @@ export class DatabaseService {
     roomId: string,
     passcode: string
   ): Promise<boolean> {
-    console.log("J6 db:validateRoomPasscode");
+    log.debug("validateRoomPasscode");
     const query = `
       SELECT passcode_hash FROM rooms 
       WHERE id = $1 AND is_private = true
@@ -163,7 +171,7 @@ export class DatabaseService {
   }
 
   async getRoomById(roomId: string): Promise<Room | null> {
-    console.log("db:getRoomById", roomId);
+    log.debug("getRoomById");
 
     const query = `
       SELECT r.id, r.name, r.description, r.is_private, r.created_by, r.created_at,
@@ -193,7 +201,7 @@ export class DatabaseService {
   }
 
   async getRoomByName(roomName: string): Promise<Room | null> {
-    console.log("db:getRoomByName", roomName);
+    log.debug("getRoomByName");
 
     const query = `
       SELECT r.id, r.name, r.description, r.is_private, r.created_by, r.created_at,
@@ -224,7 +232,7 @@ export class DatabaseService {
 
   // Room membership operations
   async addUserToRoom(userId: string, roomId: string): Promise<RoomMembership> {
-    console.log("J7 C6 db:addUserToRoom");
+    log.debug("addUserToRoom");
     const insertSql = `
       INSERT INTO room_memberships (user_id, room_id)
       VALUES ($1, $2)
@@ -264,7 +272,7 @@ export class DatabaseService {
   }
 
   async removeUserFromRoom(userId: string, roomId: string): Promise<void> {
-    console.log("db:removeUserFromRoom");
+    log.debug("removeUserFromRoom");
     const query = `
       UPDATE room_memberships 
       SET is_active = false
@@ -275,7 +283,7 @@ export class DatabaseService {
   }
 
   async getRoomMembers(roomId: string): Promise<User[]> {
-    console.log("db:getRoomMembers");
+    log.debug("getRoomMembers");
     const query = `
       SELECT u.id, u.username, u.email, u.created_at
       FROM users u
@@ -295,7 +303,7 @@ export class DatabaseService {
   }
 
   async isUserInRoom(userId: string, roomId: string): Promise<boolean> {
-    console.log("db:isUserInRoom");
+    log.debug("isUserInRoom");
     const query = `
       SELECT 1 FROM room_memberships 
       WHERE user_id = $1 AND room_id = $2 AND is_active = true
@@ -307,7 +315,7 @@ export class DatabaseService {
 
   // currently limited to 50 for simplicity
   async getPublicRooms(userId?: string, limit: number = 50): Promise<Room[]> {
-    console.log("db:getPublicRooms");
+    log.debug("getPublicRooms");
 
     let query: string;
     let params: any[];
@@ -358,7 +366,7 @@ export class DatabaseService {
   }
 
   async getUserRooms(userId: string): Promise<Room[]> {
-    console.log("db:getUserRooms");
+    log.debug("getUserRooms");
     const query = `
       SELECT r.id, r.name, r.description, r.is_private, r.created_by, r.created_at,
              COUNT(rm2.user_id) as member_count, MAX(rm.joined_at) AS joined_at
@@ -384,7 +392,7 @@ export class DatabaseService {
   }
 
   async getUserRoomIds(userId: string): Promise<string[]> {
-    console.log("db:getUserRoomIds");
+    log.debug("getUserRoomIds");
     const query = `
       SELECT r.id
       FROM rooms r
@@ -403,7 +411,7 @@ export class DatabaseService {
     content: string,
     messageType: "text" | "system" = "text"
   ): Promise<Message> {
-    console.log("C13 db:storeMessage");
+    log.debug("storeMessage");
     const query = `
       INSERT INTO messages (room_id, user_id, content, message_type)
       VALUES ($1, $2, $3, $4)
@@ -438,7 +446,7 @@ export class DatabaseService {
     limit: number = 50,
     beforeMessageId?: string
   ): Promise<MessageResponse> {
-    console.log("db:getMessagesFromDB");
+    log.debug("getMessagesFromDB");
     let query: string;
     let params: any[];
 
@@ -509,7 +517,7 @@ export class DatabaseService {
     roomId: string,
     limit: number = 50
   ): Promise<Message[]> {
-    console.log("db:getRecentMessagesFromDB");
+    log.debug("getRecentMessagesFromDB");
     const query = `
       SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.message_type, m.created_at
       FROM messages m
@@ -535,7 +543,7 @@ export class DatabaseService {
   }
 
   async disconnect(): Promise<void> {
-    console.log("db:disconnect");
+    log.debug("disconnect");
     await this.pool.end();
   }
 }

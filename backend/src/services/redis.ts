@@ -1,5 +1,7 @@
 import Redis from "ioredis";
-import { UserPresence, Message } from "../types";
+import { UserPresence, Message } from "../utils/types";
+import { logger } from "../utils/logger";
+const log = logger.child({ mod: "redis" });
 
 export class RedisService {
   private redis: Redis;
@@ -16,17 +18,17 @@ export class RedisService {
     this.redis = new Redis(redisUrl);
 
     this.redis.on("connect", () => {
-      console.log("Connected to Redis");
+      log.info("Connected to Redis");
     });
 
     this.redis.on("error", (err) => {
-      console.error("Redis connection error:", err);
+      log.error(err, "Redis connection error");
     });
   }
 
   // Message storage operations
   async storeMessageInCache(roomId: string, message: Message): Promise<void> {
-    console.log("C14 redis/storeMessageInCache");
+    log.debug("storeMessageInCache");
     const messageKey = `room:${roomId}:messages`;
     const messageData = JSON.stringify(message);
 
@@ -49,7 +51,7 @@ export class RedisService {
     roomId: string,
     limit: number = 50
   ): Promise<Message[]> {
-    console.log("redis/getRecentMessagesFromCache");
+    log.debug("getRecentMessagesFromCache");
     const messageKey = `room:${roomId}:messages`;
     const messages = await this.redis.lrange(messageKey, 0, limit - 1);
 
@@ -57,20 +59,20 @@ export class RedisService {
   }
 
   async getRecentMessageCount(roomId: string): Promise<number> {
-    console.log("redis/getRecentMessageCount");
+    log.debug("getRecentMessageCount");
     const messageKey = `room:${roomId}:messages`;
     return await this.redis.llen(messageKey);
   }
 
   async clearRoomCache(roomId: string): Promise<void> {
-    console.log("redis/clearRoomCache");
+    log.debug("clearRoomCache");
     const messageKey = `room:${roomId}:messages`;
     await this.redis.del(messageKey);
   }
 
   // Check if we have recent messages in cache
   async hasRecentMessages(roomId: string): Promise<boolean> {
-    console.log("redis/hasRecentMessages");
+    log.debug("hasRecentMessages");
     const messageKey = `room:${roomId}:messages`;
     const exists = await this.redis.exists(messageKey);
     return exists === 1;
@@ -78,23 +80,23 @@ export class RedisService {
 
   // User session operations
   async setUserSession(userId: string, socketId: string): Promise<void> {
-    console.log("redis/setUserSession");
+    log.debug("setUserSession");
     await this.redis.set(`user:${userId}:socket`, socketId, "EX", 3600);
   }
 
   async getUserSocket(userId: string): Promise<string | null> {
-    console.log("redis/getUserSocket");
+    log.debug("getUserSocket");
     return await this.redis.get(`user:${userId}:socket`);
   }
 
   async removeUserSession(userId: string): Promise<void> {
-    console.log("redis/removeUserSession");
+    log.debug("removeUserSession");
     await this.redis.del(`user:${userId}:socket`);
   }
 
   // Multi-room presence operations
   async setUserPresence(userId: string, presence: UserPresence): Promise<void> {
-    console.log("redis/setUserPresence");
+    log.debug("setUserPresence");
     const presenceKey = `presence:${userId}`;
     await this.redis.hset(presenceKey, {
       userId: presence.userId,
@@ -103,13 +105,10 @@ export class RedisService {
       lastSeen: presence.lastSeen,
       activeRooms: JSON.stringify(presence.activeRooms),
     });
-
-    // Set expiration for presence data
-    // await this.redis.expire(presenceKey, 300); // 5 minutes
   }
 
   async getUserPresence(userId: string): Promise<UserPresence | null> {
-    console.log("7 redis/getUserPresence");
+    log.debug("getUserPresence");
     const presenceKey = `presence:${userId}`;
     const data = await this.redis.hgetall(presenceKey);
 
@@ -128,7 +127,7 @@ export class RedisService {
 
   // Room operations
   async addUserToRoom(userId: string, roomId: string): Promise<void> {
-    console.log("J8 C7 redis/addUserToRoom");
+    log.debug("addUserToRoom");
     // Add to room set
     await this.redis.sadd(`room:${roomId}:users`, userId);
 
@@ -141,7 +140,7 @@ export class RedisService {
   }
 
   async removeUserFromRoom(userId: string, roomId: string): Promise<void> {
-    console.log("redis/removeUserFromRoom");
+    log.debug("removeUserFromRoom");
     // Remove from room set
     await this.redis.srem(`room:${roomId}:users`, userId);
 
@@ -154,7 +153,7 @@ export class RedisService {
   }
 
   async getRoomUsers(roomId: string): Promise<string[]> {
-    console.log("redis/getRoomUsers");
+    log.debug("getRoomUsers");
     return await this.redis.smembers(`room:${roomId}:users`);
   }
 
@@ -163,7 +162,7 @@ export class RedisService {
     username: string,
     activeRooms: string[] = []
   ): Promise<void> {
-    console.log("redis/setUserOnline");
+    log.debug("setUserOnline");
     const presence: UserPresence = {
       userId,
       username,
@@ -177,7 +176,7 @@ export class RedisService {
   }
 
   async setUserOffline(userId: string): Promise<void> {
-    console.log("6 redis/setUserOffline");
+    log.debug("setUserOffline");
     const currentPresence = await this.getUserPresence(userId);
     if (currentPresence) {
       currentPresence.status = "offline";
@@ -189,12 +188,12 @@ export class RedisService {
   }
 
   async getOnlineUsers(): Promise<string[]> {
-    console.log("4 redis/getOnlineUsers");
+    log.debug("getOnlineUsers");
     return await this.redis.smembers("online_users");
   }
 
   async getRoomPresences(roomId: string): Promise<UserPresence[]> {
-    console.log("8 redis/getRoomPresences");
+    log.debug("getRoomPresences");
     const userIds = await this.getRoomUsers(roomId);
     const presences: UserPresence[] = [];
 
@@ -210,31 +209,29 @@ export class RedisService {
 
   // Heartbeat operations
   async updateUserHeartbeat(userId: string): Promise<void> {
-    console.log("redis/updateUserHeartbeat");
+    log.debug("updateUserHeartbeat");
     const heartbeatKey = `heartbeat:${userId}`;
     await this.redis.set(heartbeatKey, Date.now(), "EX", 30); // 30 seconds
   }
 
   async getUserHeartbeat(userId: string): Promise<number | null> {
-    console.log("5 redis/getUserHeartbeat");
+    log.debug("getUserHeartbeat");
     const heartbeatKey = `heartbeat:${userId}`;
     const timestamp = await this.redis.get(heartbeatKey);
     return timestamp ? parseInt(timestamp) : null;
   }
 
   async cleanupStaleUsers(): Promise<string[]> {
-    console.log("3 redis/cleanupStaleUsers");
+    log.debug("cleanupStaleUsers");
 
     const onlineUsers = await this.getOnlineUsers();
     const staleUsers: string[] = [];
     const now = Date.now();
 
-    console.log(onlineUsers);
-
     for (const userId of onlineUsers) {
       const lastHeartbeat = await this.getUserHeartbeat(userId);
-      if (!lastHeartbeat || now - lastHeartbeat > 60000) {
-        // 1 minute stale
+      if (!lastHeartbeat || now - lastHeartbeat > 180000) {
+        // 3 minutes stale
         staleUsers.push(userId);
         await this.setUserOffline(userId);
       }
@@ -244,7 +241,7 @@ export class RedisService {
   }
 
   async disconnect(): Promise<void> {
-    console.log("redis/disconnect");
+    log.debug("disconnect");
     await this.redis.disconnect();
   }
 }

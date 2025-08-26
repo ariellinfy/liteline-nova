@@ -10,6 +10,15 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
+function sendError(
+  res: Response,
+  status: number,
+  message: string,
+  code: "UNAUTHORIZED" | "GENERIC" = "GENERIC"
+) {
+  return res.status(status).json({ error: { message, code } });
+}
+
 export function createAuthMiddleware(
   authService: AuthService,
   dbService: DatabaseService
@@ -20,24 +29,25 @@ export function createAuthMiddleware(
     next: NextFunction
   ) => {
     try {
-      console.log("createAuthMiddleware:req.headers");
+      req.log?.debug("createAuthMiddleware");
+
       const token = authService.extractTokenFromHeader(
         req.headers.authorization
       );
 
       if (!token) {
-        return res.status(401).json({ error: "No token provided" });
+        return sendError(res, 401, "No token provided", "UNAUTHORIZED");
       }
 
       const payload = authService.verifyToken(token);
       if (!payload) {
-        return res.status(401).json({ error: "Invalid token" });
+        return sendError(res, 401, "Invalid token", "UNAUTHORIZED");
       }
 
       // Verify user still exists
       const user = await dbService.getUserById(payload.userId);
       if (!user) {
-        return res.status(401).json({ error: "User not found" });
+        return sendError(res, 401, "User not found", "UNAUTHORIZED");
       }
 
       req.user = {
@@ -48,8 +58,8 @@ export function createAuthMiddleware(
 
       next();
     } catch (error) {
-      console.error("Auth middleware error:", error);
-      return res.status(500).json({ error: "Authentication error" });
+      req.log?.error(error as Error, "Auth middleware error");
+      return sendError(res, 500, "Authentication error", "GENERIC");
     }
   };
 }
@@ -61,10 +71,12 @@ export function createSocketAuthMiddleware(
 ) {
   return async (socket: any, next: any) => {
     try {
+      console.log("createSocketAuthMiddleware");
+
       const token =
         socket.handshake.auth.token ||
         socket.handshake.headers.authorization?.replace("Bearer ", "");
-      console.log("createSocketAuthMiddleware");
+
       if (!token) {
         return next(new Error("No token provided"));
       }

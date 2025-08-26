@@ -1,10 +1,12 @@
 import { Server, Socket } from "socket.io";
 import { ChatService } from "../services/chat";
-import { User, MessagePaginationRequest } from "../types";
+import { User, MessagePaginationRequest } from "../utils/types";
+import { logger } from "../utils/logger";
 
 export function socketHandler(io: Server, chatService: ChatService) {
   io.on("connection", async (socket: Socket) => {
     const user: User = socket.user; // Set by auth middleware
+    const slog = logger.child({ mod: "socket", sid: socket.id, uid: user?.id });
 
     // Connect initialization
     await handleUserConnect();
@@ -13,7 +15,7 @@ export function socketHandler(io: Server, chatService: ChatService) {
     socket.on(
       "join_room",
       async (data: { roomId: string; alreadyJoined: boolean }) => {
-        console.log("J10 C9 socket/join_room");
+        slog.debug({ evt: "join_room", data }, "socket event");
         try {
           const { roomId, alreadyJoined } = data;
 
@@ -50,8 +52,6 @@ export function socketHandler(io: Server, chatService: ChatService) {
             });
 
           // Send recent messages to the user
-          // const recentMessages = await chatService.getRecentMessages(roomId);
-          // socket.emit("recent_messages", { roomId, messages: recentMessages });
           const firstPage = await chatService.getMessages({
             roomId,
             limit: 50,
@@ -63,7 +63,7 @@ export function socketHandler(io: Server, chatService: ChatService) {
             nextCursor: firstPage.nextCursor,
           });
         } catch (error) {
-          console.error("Error joining room:", error);
+          slog.error(error as Error, "Error joining room");
           socket.emit("error", { message: "Failed to join room" });
         }
       }
@@ -71,7 +71,7 @@ export function socketHandler(io: Server, chatService: ChatService) {
 
     // Handle leaving a room
     socket.on("leave_room", async (data: { roomId: string }) => {
-      console.log("L6 socket/leave_room");
+      slog.debug({ evt: "leave_room", data }, "socket event");
       try {
         const { roomId } = data;
 
@@ -102,7 +102,7 @@ export function socketHandler(io: Server, chatService: ChatService) {
           presences,
         });
       } catch (error) {
-        console.error("Error leaving room:", error);
+        slog.error(error as Error, "Error leaving room");
         socket.emit("error", { message: "Failed to leave room" });
       }
     });
@@ -111,7 +111,7 @@ export function socketHandler(io: Server, chatService: ChatService) {
     socket.on(
       "send_message",
       async (data: { roomId: string; content: string }) => {
-        console.log("M3 socket/send_message");
+        slog.debug({ evt: "send_message", data }, "socket event");
         try {
           const { roomId, content } = data;
 
@@ -126,7 +126,7 @@ export function socketHandler(io: Server, chatService: ChatService) {
           // Create message (stored in both PostgreSQL and Redis)
           await chatService.createMessage(roomId, user.id, content.trim());
         } catch (error) {
-          console.error("Error sending message:", error);
+          slog.error(error as Error, "Error sending message");
           socket.emit("error", { message: "Failed to send message" });
         }
       }
@@ -134,7 +134,7 @@ export function socketHandler(io: Server, chatService: ChatService) {
 
     // Handle loading more messages (pagination)
     socket.on("load_more_messages", async (data: MessagePaginationRequest) => {
-      console.log("socket/load_more_messages");
+      slog.debug({ evt: "load_more_messages", data }, "socket event");
       try {
         const { roomId, limit = 50, before } = data;
 
@@ -147,14 +147,15 @@ export function socketHandler(io: Server, chatService: ChatService) {
           nextCursor: result.nextCursor,
         });
       } catch (error) {
-        console.error("Error loading more messages:", error);
+        slog.error(error as Error, "Error loading more messages");
         socket.emit("error", { message: "Failed to load more messages" });
       }
     });
 
     // Handle typing indicators
     socket.on("typing_start", async (data: { roomId: string }) => {
-      console.log("socket/typing_start");
+      slog.debug({ evt: "typing_start", data }, "socket event");
+
       const { roomId } = data;
 
       await chatService.bumpActivity(user.id, user.username);
@@ -168,7 +169,8 @@ export function socketHandler(io: Server, chatService: ChatService) {
     });
 
     socket.on("typing_stop", (data: { roomId: string }) => {
-      console.log("socket/typing_stop");
+      slog.debug({ evt: "typing_stop", data }, "socket event");
+
       const { roomId } = data;
 
       socket.to(roomId).emit("user_typing", {
@@ -181,44 +183,44 @@ export function socketHandler(io: Server, chatService: ChatService) {
 
     // Handle manual heartbeat
     socket.on("heartbeat", async () => {
-      console.log("socket/heartbeat");
+      slog.debug({ evt: "heartbeat" }, "socket event");
       try {
         await chatService.bumpActivity(user.id, user.username);
         socket.emit("heartbeat_ack");
       } catch (error) {
-        console.error("Heartbeat error:", error);
+        slog.error(error as Error, "Heartbeat error");
       }
     });
 
     // Handle get room presences
     socket.on("get_room_presences", async (data: { roomId: string }) => {
-      console.log("socket/get_room_presences");
+      slog.debug({ evt: "get_room_presences", data }, "socket event");
+
       try {
         const { roomId } = data;
         const presences = await chatService.getRoomPresences(roomId);
         socket.emit("room_presences", { roomId, presences });
       } catch (error) {
-        console.error("Error getting room presences:", error);
+        slog.error(error as Error, "Error getting room presences");
         socket.emit("error", { message: "Failed to get room presences" });
       }
     });
 
     // Handle get user's rooms
     socket.on("get_my_rooms", async () => {
-      console.log("socket/get_my_rooms");
+      slog.debug({ evt: "get_my_rooms" }, "socket event");
       try {
         const rooms = await chatService.getUserRooms(user.id);
         socket.emit("my_rooms", { rooms });
       } catch (error) {
-        console.error("Error getting user rooms:", error);
+        slog.error(error as Error, "Error getting user rooms");
         socket.emit("error", { message: "Failed to get rooms" });
       }
     });
 
     // Handle connection
     async function handleUserConnect() {
-      console.log("socket/connect");
-      console.log("User connect:", socket.id);
+      slog.info({ evt: "User connect", id: socket.id }, "socket event");
 
       // Set user online
       await chatService.setUserOnlineInRooms(user.id, user.username);
@@ -235,14 +237,13 @@ export function socketHandler(io: Server, chatService: ChatService) {
           });
         }
       } catch (error) {
-        console.error("Error handling connection:", error);
+        slog.error(error as Error, "Error handling connection");
       }
     }
 
     // Handle disconnection
     socket.on("disconnect", async (reason) => {
-      console.log("socket/disconnect");
-      console.log("User disconnected:", socket.id, "Reason:", reason);
+      slog.info({ reason }, "socket disconnected");
 
       // Set user offline
       await chatService.setUserOffline(user.id);
@@ -259,7 +260,7 @@ export function socketHandler(io: Server, chatService: ChatService) {
           });
         }
       } catch (error) {
-        console.error("Error handling disconnection:", error);
+        slog.error(error as Error, "Error handling disconnection");
       }
     });
   });

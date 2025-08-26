@@ -85,7 +85,7 @@ export interface MessageResponse {
   nextCursor?: string; // check what this is doing
 }
 
-export type ErrorCode =
+export type ApiErrorCode =
   | "PASSCODE_REQUIRED"
   | "INVALID_PASSCODE"
   | "NOT_FOUND"
@@ -95,7 +95,7 @@ export type ErrorCode =
   | "DUPLICATE_ROOM_NAME"
   | "GENERIC";
 
-export interface Error {
+export interface ApiError {
   message: string;
-  code?: ErrorCode;
+  code: ApiErrorCode;
 }
