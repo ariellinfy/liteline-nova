@@ -9,13 +9,6 @@ dotenv.config();
 export function buildApp() {
   const app = express();
 
-  // Middleware
-  // app.use(
-  //   cors({
-  //     origin: process.env.FRONTEND_URL || "http://localhost:5173",
-  //   })
-  // );
-
   app.use(
     pinoHttp({
       logger,

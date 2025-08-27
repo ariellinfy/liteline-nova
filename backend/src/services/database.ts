@@ -20,13 +20,6 @@ const connectionString =
     process.env.DB_NAME || "chat_db"
   }`;
 
-// Decide SSL based on host, not NODE_ENV
-const isLocal =
-  /@(?:localhost|127\.0\.0\.1|\[?::1\]?)[:/]/.test(connectionString) ||
-  ["localhost", "127.0.0.1", "::1"].includes(
-    (process.env.DB_HOST || "").trim()
-  );
-
 export class DatabaseService {
   private pool: Pool;
 
@@ -34,7 +27,7 @@ export class DatabaseService {
     this.pool = new Pool({
       connectionString,
       ssl: {
-        // rejectUnauthorized: false,
+        rejectUnauthorized: true,
         ca: fs.readFileSync("/etc/secrets/prod-ca-2021.crt").toString(),
       },
       max: 20,
