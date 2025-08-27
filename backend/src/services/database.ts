@@ -42,9 +42,7 @@ export class DatabaseService {
   constructor() {
     this.pool = new Pool({
       connectionString,
-      ssl: {
-        ca: process.env.SUPABASE_CA_PEM,
-      },
+      ssl: false,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
