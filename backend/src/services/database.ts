@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import fs from "fs";
 import bcrypt from "bcryptjs";
 import {
   User,
@@ -10,6 +11,7 @@ import {
 import { logger } from "../utils/logger";
 
 const log = logger.child({ mod: "db" });
+
 const connectionString =
   process.env.POSTGRES_URL ||
   `postgresql://${process.env.DB_USER || "postgres"}:${
@@ -25,24 +27,16 @@ const isLocal =
     (process.env.DB_HOST || "").trim()
   );
 
-const u = new URL(connectionString);
-log.info(
-  {
-    host: u.hostname,
-    port: u.port,
-    ssl_enabled: !isLocal,
-    connectionString: u,
-  },
-  "DB connection"
-);
-
 export class DatabaseService {
   private pool: Pool;
 
   constructor() {
     this.pool = new Pool({
       connectionString,
-      ssl: false,
+      ssl: {
+        rejectUnauthorized: false,
+        ca: fs.readFileSync("/etc/secrets/prod-ca-2021.crt").toString(),
+      },
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
