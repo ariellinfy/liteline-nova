@@ -34,7 +34,7 @@ export class DatabaseService {
     this.pool = new Pool({
       connectionString,
       ssl: {
-        rejectUnauthorized: false,
+        // rejectUnauthorized: false,
         ca: fs.readFileSync("/etc/secrets/prod-ca-2021.crt").toString(),
       },
       max: 20,
