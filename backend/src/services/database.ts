@@ -25,6 +25,17 @@ const isLocal =
     (process.env.DB_HOST || "").trim()
   );
 
+const u = new URL(connectionString);
+log.info(
+  {
+    host: u.hostname,
+    port: u.port,
+    ssl_enabled: !isLocal,
+    connectionString: u,
+  },
+  "DB connection"
+);
+
 export class DatabaseService {
   private pool: Pool;
 
