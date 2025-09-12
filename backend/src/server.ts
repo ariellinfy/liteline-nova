@@ -26,9 +26,19 @@ async function startServer() {
   const app = buildApp();
   const server = createServer(app);
 
+  // Parse ALLOWED_ORIGINS from env (comma-separated)
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
+    : [];
+
   // Socket.IO setup with Redis adapter
   const io = new Server(server, {
     path: "/socket.io",
+    cors: {
+      origin: allowedOrigins,
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
   });
 
   // Redis adapter clients

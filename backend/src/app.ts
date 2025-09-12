@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import dotenv from "dotenv";
 import pinoHttp from "pino-http";
 import crypto from "node:crypto";
@@ -8,6 +9,27 @@ dotenv.config();
 
 export function buildApp() {
   const app = express();
+
+  // Parse ALLOWED_ORIGINS from env (comma-separated)
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
+    : [];
+
+  // Enable CORS for the frontend origin
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        // Allow requests with no origin (e.g., curl, Postman) or if origin is in allowedOrigins
+        if (!origin || allowedOrigins.includes(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error("Not allowed by CORS"));
+        }
+      },
+      methods: ["GET", "POST", "PUT", "DELETE"],
+      credentials: true,
+    })
+  );
 
   app.use(
     pinoHttp({

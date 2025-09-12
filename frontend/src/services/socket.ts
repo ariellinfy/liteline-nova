@@ -70,7 +70,7 @@ class SocketService {
     this.serverUrl =
       opts.serverUrl ||
       import.meta.env.VITE_API_URL ||
-      "http://localhost:3001";
+      "http://localhost:8001";
 
     this.idleThresholdMs = opts.idleThresholdMs ?? 30000;
     this.periodicMs = opts.periodicMs ?? 25000;
