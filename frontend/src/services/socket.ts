@@ -133,20 +133,20 @@ class SocketService {
   // ---- Room + messaging actions (also mark as activity) ----
   // Room operations
   joinRoom(roomId: string, alreadyJoined: boolean): void {
-    log("joinRoom J9 C8");
+    log("joinRoom");
     this.registerActivity();
     this.socket?.emit("join_room", { roomId, alreadyJoined });
   }
 
   leaveRoom(roomId: string): void {
-    log("eaveRoom L5 ");
+    log("leaveRoom");
     this.registerActivity();
     this.socket?.emit("leave_room", { roomId });
   }
 
   // Messaging
   sendMessage(roomId: string, content: string): void {
-    log("sendMessage M2");
+    log("sendMessage");
     if (!content.trim()) return;
     this.registerActivity();
     this.socket?.emit("send_message", { roomId, content: content.trim() });
