@@ -17,9 +17,9 @@ import { logger } from "../utils/logger";
 const log = logger.child({ mod: "chat" });
 
 export class ChatService {
-  private dbService: DatabaseService;
+  dbService: DatabaseService;
   private redisService: RedisService;
-  private authService: AuthService;
+  authService: AuthService;
   private io: Server;
   private heartbeatInterval: NodeJS.Timeout;
 

@@ -24,6 +24,23 @@ class AuthService {
     }
   }
 
+  async validateToken(token: string): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/auth/validate`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        throw await this.toApiError(response, "Token validation failed");
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async register(data: RegisterRequest): Promise<AuthUser> {
     const response = await fetch(`${this.baseUrl}/api/auth/register`, {
       method: "POST",
@@ -78,12 +95,19 @@ class AuthService {
     localStorage.removeItem("chat_user");
   }
 
-  getStoredAuth(): AuthUser | null {
+  async getStoredAuth(): Promise<AuthUser | null> {
     const token = localStorage.getItem("chat_token");
     const userStr = localStorage.getItem("chat_user");
 
     if (token && userStr) {
       try {
+        // Validate token before returning
+        const isValid = await this.validateToken(token);
+        if (!isValid) {
+          this.logout();
+          return null;
+        }
+
         const user = JSON.parse(userStr);
         return { ...user, token };
       } catch {

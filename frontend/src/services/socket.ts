@@ -68,9 +68,7 @@ class SocketService {
 
   constructor(opts: Options = {}) {
     this.serverUrl =
-      opts.serverUrl ||
-      import.meta.env.VITE_API_URL ||
-      "http://localhost:8001";
+      opts.serverUrl || import.meta.env.VITE_API_URL || "http://localhost:8001";
 
     this.idleThresholdMs = opts.idleThresholdMs ?? 30000;
     this.periodicMs = opts.periodicMs ?? 25000;
@@ -82,9 +80,10 @@ class SocketService {
 
   connect(): Promise<void> {
     log("connect()");
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       try {
-        const token = authService.getStoredAuth()?.token;
+        const storedAuth = await authService.getStoredAuth();
+        const token = storedAuth?.token;
         if (!token) {
           reject(new Error("No authentication token available"));
           return;

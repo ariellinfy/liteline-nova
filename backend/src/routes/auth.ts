@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { ChatService } from "../services/chat";
 import { LoginRequest, RegisterRequest } from "../utils/types";
+import { AuthenticatedRequest, createAuthMiddleware } from "../middleware/auth";
 
 export function createAuthRoutes(chatService: ChatService) {
   const router = Router();
@@ -11,6 +12,35 @@ export function createAuthRoutes(chatService: ChatService) {
     message: string,
     code: "VALIDATION_ERROR" | "UNAUTHORIZED" | "GENERIC"
   ) => res.status(status).json({ error: { message, code } });
+
+  // Verify token
+  router.get("/validate", async (req, res) => {
+    req.log.info("auth/validate");
+    try {
+      const token = chatService.authService.extractTokenFromHeader(
+        req.headers.authorization
+      );
+
+      if (!token) {
+        return sendError(res, 401, "No token provided", "UNAUTHORIZED");
+      }
+
+      const payload = chatService.authService.verifyToken(token);
+      if (!payload) {
+        return sendError(res, 401, "Invalid or expired token", "UNAUTHORIZED");
+      }
+
+      const user = await chatService.dbService.getUserById(payload.userId);
+      if (!user) {
+        return sendError(res, 401, "User not found", "UNAUTHORIZED");
+      }
+
+      res.json({ valid: true });
+    } catch (error) {
+      res.log.error(error, "Token validation error");
+      return sendError(res, 500, "Token validation failed", "GENERIC");
+    }
+  });
 
   // Register
   router.post("/register", async (req, res) => {

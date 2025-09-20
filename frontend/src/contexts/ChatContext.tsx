@@ -369,18 +369,27 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // Initialize auth state on mount
   useEffect(() => {
-    const storedAuth = authService.getStoredAuth();
-    if (storedAuth) {
-      dispatch({
-        type: "SET_AUTHENTICATED",
-        payload: { user: storedAuth, isAuthenticated: true },
-      });
-    }
+    const initializeAuth = async () => {
+      dispatch({ type: "SET_LOADING", payload: true });
+      const storedAuth = await authService.getStoredAuth();
+      if (storedAuth) {
+        dispatch({
+          type: "SET_AUTHENTICATED",
+          payload: { user: storedAuth, isAuthenticated: true },
+        });
+      }
+      dispatch({ type: "SET_LOADING", payload: false });
+    };
+
+    initializeAuth();
   }, []);
 
   // Set up socket event listeners
   useEffect(() => {
-    if (!state.isAuthenticated) return;
+    if (!state.isAuthenticated) {
+      socketService.disconnect(); // Ensure socket is disconnected if not authenticated
+      return;
+    }
 
     socketService.onRoomUpdate((data) => {
       log("onRoomUpdate", data);
@@ -471,6 +480,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           ? error
           : new ApiError(error?.message || "Socket error", "GENERIC");
       dispatch({ type: "SET_ERROR", payload: wrapped });
+      // If error is due to authentication, log out
+      if (wrapped.code === "UNAUTHORIZED") {
+        logout();
+      }
     });
 
     return () => {
