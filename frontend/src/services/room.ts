@@ -34,14 +34,21 @@ class RoomService {
       throw new ApiError("Network error", "GENERIC");
     }
     if (!response.ok) {
+      let body: any = null;
+
+      // Try to parse JSON, but don't swallow later throws
       try {
-        const body = await response.json();
-        const message: string = body?.error?.message ?? "Request failed";
-        const code: ApiErrorCode | undefined = body?.error?.code;
-        throw new ApiError(message, code);
+        body = await response.json();
       } catch {
-        throw new ApiError("Request failed", "GENERIC");
+        body = null;
       }
+
+      const message: string =
+        body?.error?.message ?? body?.message ?? "Request failed";
+
+      const code: ApiErrorCode = body?.error?.code ?? body?.code ?? "GENERIC";
+
+      throw new ApiError(message, code);
     }
     return response.json();
   }

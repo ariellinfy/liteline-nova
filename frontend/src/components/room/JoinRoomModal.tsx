@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useChat } from "../../contexts/ChatContext";
+import { ApiError } from "../../types";
 
 const JoinRoomModal: React.FC<{
   isOpen: boolean;
@@ -38,7 +39,8 @@ const JoinRoomModal: React.FC<{
       setForceAskPasscode(false);
       onClose();
     } catch (error) {
-      if (error.code === "PASSCODE_REQUIRED") {
+      console.log(error, error.code);
+      if (error instanceof ApiError && error.code === "PASSCODE_REQUIRED") {
         setForceAskPasscode(true);
       }
     } finally {
