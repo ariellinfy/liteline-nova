@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { ChatService } from "../services/chat";
 import { LoginRequest, RegisterRequest } from "../utils/types";
-import { AuthenticatedRequest, createAuthMiddleware } from "../middleware/auth";
 
 export function createAuthRoutes(chatService: ChatService) {
   const router = Router();

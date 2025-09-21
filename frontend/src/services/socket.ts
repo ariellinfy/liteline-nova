@@ -80,10 +80,10 @@ class SocketService {
 
   connect(): Promise<void> {
     log("connect()");
-    return new Promise(async (resolve, reject) => {
+    return new Promise((resolve, reject) => {
       try {
-        const storedAuth = await authService.getStoredAuth();
-        const token = storedAuth?.token;
+        const token = authService.getStoredAuth()?.token;
+
         if (!token) {
           reject(new Error("No authentication token available"));
           return;

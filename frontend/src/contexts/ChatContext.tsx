@@ -369,19 +369,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // Initialize auth state on mount
   useEffect(() => {
-    const initializeAuth = async () => {
-      dispatch({ type: "SET_LOADING", payload: true });
-      const storedAuth = await authService.getStoredAuth();
-      if (storedAuth) {
-        dispatch({
-          type: "SET_AUTHENTICATED",
-          payload: { user: storedAuth, isAuthenticated: true },
-        });
-      }
-      dispatch({ type: "SET_LOADING", payload: false });
-    };
-
-    initializeAuth();
+    const storedAuth = authService.getStoredAuth();
+    if (storedAuth) {
+      dispatch({
+        type: "SET_AUTHENTICATED",
+        payload: { user: storedAuth, isAuthenticated: true },
+      });
+    }
   }, []);
 
   // Set up socket event listeners
